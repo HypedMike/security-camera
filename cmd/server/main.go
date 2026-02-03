@@ -1,6 +1,7 @@
 package main
 
 import (
+	"os"
 	"security-camera/camera"
 	"security-camera/db"
 	"security-camera/telegram"
@@ -11,10 +12,13 @@ import (
 func main() {
 	godotenv.Load()
 
-	uri := "mongodb://localhost:27017/security-camera"
-	database := db.NewDb(uri, "security-camera")
+	telegramApiKey := os.Getenv("TELEGRAM_API_KEY")
 
-	telegramBot, err := telegram.NewTelegramBot(database)
+	uri := os.Getenv("MONGODB_URI")
+	dbName := os.Getenv("DB_NAME")
+	database := db.NewDb(uri, dbName)
+
+	telegramBot, err := telegram.NewTelegramBot(database, telegramApiKey)
 	if err != nil {
 		panic(err)
 	}
@@ -25,4 +29,5 @@ func main() {
 		panic(err)
 	}
 	defer cameraService.Close()
+	defer telegramBot.Stop()
 }

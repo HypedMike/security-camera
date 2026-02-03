@@ -24,7 +24,7 @@ type TelegramBot struct {
 	userRepo *user.UserRepository
 }
 
-func NewTelegramBot(db *db.DbStruct) (*TelegramBot, error) {
+func NewTelegramBot(db *db.DbStruct, apiKey string) (*TelegramBot, error) {
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt)
 
 	// Initialize user repo early to use in handler
@@ -36,7 +36,7 @@ func NewTelegramBot(db *db.DbStruct) (*TelegramBot, error) {
 		}),
 	}
 
-	b, err := bot.New("8228533774:AAEuinJ5_WeyYMFEtX7-IjEyg2qDALvz0YI", opts...)
+	b, err := bot.New(apiKey, opts...)
 	if err != nil {
 		cancel()
 		return nil, err
