@@ -18,7 +18,7 @@ func NewCameraService(db *db.DbStruct, trigger IWebcamTrigger) *CameraService {
 func (cs *CameraService) StartWebcamService() error {
 	// Set showDisplay to false for headless server operation
 	// Set to true only if running with GUI support on main thread
-	webcamService, err := NewWebcamService(false)
+	webcamService, err := NewWebcamService(false, cs.db)
 	if err != nil {
 		return err
 	}

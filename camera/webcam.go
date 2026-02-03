@@ -2,6 +2,8 @@ package camera
 
 import (
 	"fmt"
+	"security-camera/db"
+	"security-camera/entities/notification"
 
 	"gocv.io/x/gocv"
 )
@@ -14,13 +16,14 @@ type WebcamService struct {
 	webcam *gocv.VideoCapture
 	window *gocv.Window
 
-	trigger *IWebcamTrigger
+	trigger           *IWebcamTrigger
+	notificationLogic *notification.NotificationLogic
 
 	framesChan  chan gocv.Mat
 	showDisplay bool
 }
 
-func NewWebcamService(showDisplay bool) (*WebcamService, error) {
+func NewWebcamService(showDisplay bool, db *db.DbStruct) (*WebcamService, error) {
 	webcam, err := gocv.OpenVideoCapture(0)
 	if err != nil {
 		return nil, err
@@ -32,10 +35,11 @@ func NewWebcamService(showDisplay bool) (*WebcamService, error) {
 	}
 
 	return &WebcamService{
-		webcam:      webcam,
-		window:      window,
-		framesChan:  make(chan gocv.Mat),
-		showDisplay: showDisplay,
+		webcam:            webcam,
+		window:            window,
+		framesChan:        make(chan gocv.Mat),
+		showDisplay:       showDisplay,
+		notificationLogic: notification.NewNotificationLogic(db),
 	}, nil
 }
 
@@ -98,6 +102,12 @@ func checkArrayMovement(imgs []gocv.Mat) float64 {
 	return averageSimilarity
 }
 
+func (ws *WebcamService) createNotification() error {
+	return ws.notificationLogic.CreateNotification(notification.CreateNotificationRequest{
+		Message: &[]string{"Motion detected"}[0],
+	})
+}
+
 func (ws *WebcamService) ElaborateFrames(maxFrames int) {
 	imgsArray := []gocv.Mat{}
 	maxLength := 50
@@ -119,7 +129,12 @@ func (ws *WebcamService) ElaborateFrames(maxFrames int) {
 		if counter >= maxFrames {
 			similarity := checkArrayMovement(imgsArray)
 			fmt.Printf("Frame similarity: %.4f\n", similarity)
+			err := ws.createNotification()
+			if err != nil {
+				fmt.Printf("Error creating notification: %v\n", err)
+			}
 			if similarity*10-9 < 0.99 && ws.trigger != nil {
+
 				(*ws.trigger).OnMovementDetected()
 			}
 			counter = 0

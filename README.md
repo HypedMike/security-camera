@@ -1,3 +1,5 @@
+![mountain](https://images.pexels.com/photos/15942308/pexels-photo-15942308.jpeg)
+
 # Security Camera with Motion Detection
 
 A Go program that reads video from a webcam, detects motion, and calls an API endpoint when motion is detected.
@@ -37,15 +39,6 @@ Download and install OpenCV from the official website or use package managers li
 ```bash
 go mod download
 ```
-
-## Configuration
-
-Edit the constants in `main.go` to customize behavior:
-
-- `MinimumArea`: Minimum pixel area for motion detection (default: 3000)
-- `DeltaThreshold`: Sensitivity of motion detection (default: 25)
-- `APIEndpoint`: URL to call when motion is detected (default: "http://localhost:8080/motion-detected")
-- `CooldownPeriod`: Time between API calls (default: 5 seconds)
 
 ## Usage
 
