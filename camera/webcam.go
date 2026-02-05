@@ -2,14 +2,16 @@ package camera
 
 import (
 	"fmt"
+	"image"
 	"security-camera/db"
 	"security-camera/entities/notification"
+	"time"
 
 	"gocv.io/x/gocv"
 )
 
 type IWebcamTrigger interface {
-	OnMovementDetected()
+	OnMovementDetected(image.Image)
 }
 
 type WebcamService struct {
@@ -104,7 +106,8 @@ func checkArrayMovement(imgs []gocv.Mat) float64 {
 
 func (ws *WebcamService) createNotification() error {
 	return ws.notificationLogic.CreateNotification(notification.CreateNotificationRequest{
-		Message: &[]string{"Motion detected"}[0],
+		Message:   &[]string{"Motion detected"}[0],
+		Timestamp: time.Now().Unix(),
 	})
 }
 
@@ -129,13 +132,18 @@ func (ws *WebcamService) ElaborateFrames(maxFrames int) {
 		if counter >= maxFrames {
 			similarity := checkArrayMovement(imgsArray)
 			fmt.Printf("Frame similarity: %.4f\n", similarity)
-			err := ws.createNotification()
-			if err != nil {
-				fmt.Printf("Error creating notification: %v\n", err)
-			}
+			// err := ws.createNotification()
+			// if err != nil {
+			// 	fmt.Printf("Error creating notification: %v\n", err)
+			// }
 			if similarity*10-9 < 0.99 && ws.trigger != nil {
-
-				(*ws.trigger).OnMovementDetected()
+				// Convert gocv.Mat to image.Image
+				img, err := frame.ToImage()
+				if err != nil {
+					fmt.Printf("Error converting frame to image: %v\n", err)
+				} else {
+					(*ws.trigger).OnMovementDetected(img)
+				}
 			}
 			counter = 0
 		}

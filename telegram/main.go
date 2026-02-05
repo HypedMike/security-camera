@@ -73,7 +73,7 @@ func handler(ctx context.Context, b *bot.Bot, update *models.Update, userRepo *u
 }
 
 type SendMessageOptions struct {
-	Image image.Image
+	Image *image.Image
 	Text  string
 }
 
@@ -86,7 +86,7 @@ func imageToReader(img image.Image) (io.Reader, error) {
 	return buf, nil
 }
 
-func (tb *TelegramBot) SendAlert(text string) error {
+func (tb *TelegramBot) SendAlert(text string, options SendMessageOptions) error {
 	users, err := tb.userRepo.Find(map[string]interface{}{"admin": true})
 	if err != nil {
 		return fmt.Errorf("failed to retrieve admin users: %w", err)
@@ -97,8 +97,7 @@ func (tb *TelegramBot) SendAlert(text string) error {
 			fmt.Printf("Invalid chat ID for user %s: %v\n", user.Username, err)
 			continue
 		}
-
-		err = tb.sendMessage(user.ChatID, SendMessageOptions{Text: text})
+		err = tb.sendMessage(user.ChatID, SendMessageOptions{Text: text, Image: options.Image})
 		if err != nil {
 			fmt.Printf("Error sending alert to %s: %v\n", user.Username, err)
 		}
@@ -116,7 +115,7 @@ func (tb *TelegramBot) sendMessage(chatID int64, options SendMessageOptions) err
 	}
 
 	if options.Image != nil {
-		imageReader, err := imageToReader(options.Image)
+		imageReader, err := imageToReader(*options.Image)
 		if err != nil {
 			return fmt.Errorf("failed to convert image: %w", err)
 		}

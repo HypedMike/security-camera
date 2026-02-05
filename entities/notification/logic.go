@@ -1,7 +1,6 @@
 package notification
 
 import (
-	"errors"
 	"security-camera/db"
 	"security-camera/entities/user"
 
@@ -23,8 +22,9 @@ func (l *NotificationLogic) GetAllNotifications() ([]Notification, error) {
 }
 
 type CreateNotificationRequest struct {
-	Message *string
-	User    *user.User
+	Message   *string
+	User      *user.User
+	Timestamp int64
 
 	/**
 	* if notification is set ignore User and Message fields
@@ -36,13 +36,20 @@ func (l *NotificationLogic) CreateNotification(req CreateNotificationRequest) er
 	if req.Notification != nil {
 		return l.repo.Create(*req.Notification)
 	}
-	if req.User == nil || req.Message == nil {
-		return errors.New("user and message must be provided if notification is not set")
+
+	userID := bson.NilObjectID
+	if req.User != nil {
+		userID = req.User.ID
 	}
+	user := user.User{}
+	if req.User != nil {
+		user = *req.User
+	}
+
 	not := Notification{
 		Message: *req.Message,
-		UserID:  (*req.User).ID,
-		User:    *req.User,
+		UserID:  userID,
+		User:    user,
 	}
 	return l.repo.Create(not)
 }
