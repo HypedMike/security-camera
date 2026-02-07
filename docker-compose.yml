@@ -1,19 +1,9 @@
-version: "3.8"
-
 services:
   app:
     build:
       context: .
       dockerfile: Dockerfile
     container_name: security-camera-app
-    environment:
-      - MONGO_URI=
-      # Add other environment variables as needed
     ports:
       - "8080:8080"
-    depends_on:
-      - mongo
     restart: unless-stopped
-
-volumes:
-  mongo-data:

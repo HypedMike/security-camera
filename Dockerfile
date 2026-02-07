@@ -1,7 +1,17 @@
 # Start from the official Golang image for building
-FROM golang:1.21-alpine AS builder
+
+# ---- Build Stage ----
+FROM golang:1.21-bullseye AS builder
 
 WORKDIR /app
+
+# Install OpenCV build dependencies
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+    build-essential pkg-config \
+    libopencv-dev \
+    ca-certificates && \
+    rm -rf /var/lib/apt/lists/*
 
 # Copy go mod and sum files
 COPY go.mod .
@@ -16,24 +26,22 @@ COPY . .
 # Build the Go app (adjust the path to your main package if needed)
 RUN go build -o security-camera ./cmd/server
 
-# Start a minimal image for running
-FROM alpine:latest
+# ---- Run Stage ----
+FROM debian:bullseye-slim
 WORKDIR /root/
 
-# Install CA certificates (for HTTPS, Mongo, etc.)
-RUN apk --no-cache add ca-certificates
+# Install OpenCV runtime dependencies
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+    libopencv-core-dev libopencv-imgproc-dev libopencv-highgui-dev libopencv-videoio-dev \
+    ca-certificates && \
+    rm -rf /var/lib/apt/lists/*
 
 # Copy the built binary from builder
 COPY --from=builder /app/security-camera .
 
-# Copy any static/config files if needed
-# COPY ./config ./config
-
 # Expose the port (adjust if your app uses a different port)
 EXPOSE 8080
-
-# Set environment variables if needed
-# ENV MONGO_URI=mongodb://mongo:27017/security-camera
 
 # Run the binary
 CMD ["./security-camera"]
