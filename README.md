@@ -6,7 +6,7 @@ A robust Go-based security camera system that captures video from a webcam, dete
 
 ## Features
 
-- 🎥 Real-time webcam video capture using OpenCV
+- 🎥 Real-time webcam video capture using Linux V4L2 (no OpenCV required)
 - 🔍 Intelligent motion detection with frame similarity analysis
 - 📱 Telegram bot integration for instant alerts with images
 - 💾 MongoDB database for user and notification management
@@ -37,7 +37,7 @@ security-camera/
 ## Technology Stack
 
 - **Go 1.21+** - Core application
-- **OpenCV (gocv)** - Computer vision and motion detection
+- **blackjack/webcam** - Linux V4L2 webcam capture (no OpenCV dependency)
 - **MongoDB** - Database for users and notifications
 - **Telegram Bot API** - Real-time alert system
 - **godotenv** - Environment configuration
@@ -47,32 +47,13 @@ security-camera/
 ### System Requirements
 
 - Go 1.21 or higher
-- OpenCV 4.x
+- Linux with V4L2-compatible webcam (`/dev/video0`)
 - MongoDB instance (local or cloud)
 - Telegram Bot Token
 
-### Install OpenCV
-
-#### macOS
-
-```bash
-brew install opencv
-```
-
-#### Linux (Ubuntu/Debian)
-
-```bash
-sudo apt-get update
-sudo apt-get install libopencv-dev
-```
-
-#### Windows
-
-Download and install OpenCV from the [official website](https://opencv.org/releases/) or use package managers like chocolatey:
-
-```bash
-choco install opencv
-```
+> **Note:** OpenCV is no longer required. The application uses the Linux V4L2 kernel
+> interface directly via `github.com/blackjack/webcam` for webcam capture, and
+> standard Go libraries for frame processing (MJPEG and YUYV formats supported).
 
 ### Install Go Dependencies
 
@@ -189,7 +170,7 @@ db.users.updateOne(
 
 ### Frame Similarity Calculation
 
-The system uses OpenCV's pixel difference analysis:
+The system uses pure Go pixel difference analysis (no external library needed):
 
 ```
 similarity = 1.0 - (actual_pixel_difference / max_possible_difference)
@@ -402,21 +383,15 @@ if similarity*10-9 < 0.995 && ws.trigger != nil {
 
 ### OpenCV/GoCV Errors
 
+OpenCV and GoCV are no longer used. If you encounter webcam access issues, ensure your user has read/write access to the V4L2 device:
+
 ```bash
-# Reinstall GoCV
-go get -u gocv.io/x/gocv
+# Check camera device
+ls -la /dev/video*
 
-# Verify OpenCV installation
-pkg-config --modversion opencv4
-
-# macOS: Fix linking issues
-export CGO_CPPFLAGS="-I/usr/local/opt/opencv/include"
-export CGO_LDFLAGS="-L/usr/local/opt/opencv/lib"
+# Add your user to the video group (if needed)
+sudo usermod -aG video $USER
 ```
-
-### Display Window Not Showing (macOS)
-
-Display mode must run on the main thread. The default configuration uses headless mode (`showDisplay: false`) which is suitable for servers.
 
 ## Performance Considerations
 
@@ -454,7 +429,7 @@ MIT
 
 ## Acknowledgments
 
-- [GoCV](https://gocv.io/) - Go bindings for OpenCV
+- [GoCV](https://gocv.io/) - Original Go bindings for OpenCV (replaced)
 - [go-telegram-bot](https://github.com/go-telegram/bot) - Telegram Bot API
 - [MongoDB Go Driver](https://github.com/mongodb/mongo-go-driver) - Official MongoDB driver
 
@@ -468,4 +443,4 @@ For issues and questions:
 
 ---
 
-Built with ❤️ using Go and OpenCV
+Built with ❤️ using Go and Linux V4L2
