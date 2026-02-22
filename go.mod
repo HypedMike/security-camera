@@ -3,9 +3,11 @@ module security-camera
 go 1.21
 
 require (
+	github.com/blackjack/webcam v0.6.1
 	github.com/go-telegram/bot v1.18.0
-	gocv.io/x/gocv v0.43.0
 )
+
+require golang.org/x/sys v0.30.0 // indirect
 
 require (
 	github.com/joho/godotenv v1.5.1
@@ -14,7 +16,7 @@ require (
 	github.com/xdg-go/scram v1.2.0 // indirect
 	github.com/xdg-go/stringprep v1.0.4 // indirect
 	github.com/youmark/pkcs8 v0.0.0-20240726163527-a2c0da244d78 // indirect
-	go.mongodb.org/mongo-driver/v2 v2.5.0 // indirect
+	go.mongodb.org/mongo-driver/v2 v2.5.0
 	golang.org/x/crypto v0.33.0 // indirect
 	golang.org/x/sync v0.11.0 // indirect
 	golang.org/x/text v0.22.0 // indirect
