@@ -1,58 +1,44 @@
 package main
 
 import (
+	"context"
+	"errors"
 	"fmt"
 	"image"
-	"security_camera/lib/gif"
-	"security_camera/lib/storage"
+	"os"
+	"os/signal"
+	"time"
 
-	"github.com/google/uuid"
-	"github.com/pion/mediadevices"
-	_ "github.com/pion/mediadevices/pkg/driver/camera" // registers the camera driver
-	"github.com/pion/mediadevices/pkg/frame"
-	"github.com/pion/mediadevices/pkg/prop"
+	"security_camera/lib/detection"
+	"security_camera/lib/my_video"
+	"security_camera/lib/streaming"
 )
 
 func main() {
-	stream, err := mediadevices.GetUserMedia(mediadevices.MediaStreamConstraints{
-		Video: func(c *mediadevices.MediaTrackConstraints) {
-			c.FrameFormat = prop.FrameFormat(frame.FormatYUY2)
-			c.Width = prop.Int(640)
-			c.Height = prop.Int(480)
-		},
-	})
+	video, err := my_video.Open(my_video.DefaultConfig)
 	if err != nil {
 		panic(err)
 	}
+	defer video.Close()
 
-	track := stream.GetVideoTracks()[0].(*mediadevices.VideoTrack)
-	defer track.Close()
+	stream := streaming.New(video.Track(), streaming.Options{History: 50})
 
-	reader := track.NewReader(false)
-
-	images := []image.Image{}
-
-	// let auto-exposure settle (~1s at 30fps)
-	for i := 0; i < 30; i++ {
-		img, rel, err := reader.Read()
-		if err != nil {
-			panic(err)
+	stream.AddHandler(func(frame image.Image, history []image.Image, ts time.Time) {
+		if len(history) == 0 {
+			return
 		}
-		images = append(images, img)
-		rel()
-	}
+		diff, err := detection.Difference(append(history, frame))
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "detection:", err)
+			return
+		}
+		fmt.Printf("%s difference: %.4f\n", ts.Format("15:04:05.000"), diff)
+	})
 
-	localStorage, err := storage.Init("/Users/michelesaladino/Documents/code/security-camera/temp")
-	if err != nil {
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
+	defer stop()
+
+	if err := stream.Run(ctx); err != nil && !errors.Is(err, context.Canceled) {
 		panic(err)
 	}
-
-	randomUUID := uuid.New().String()
-
-	gifImage, err := gif.Encode(images, 1)
-	if err != nil {
-		panic(err)
-	}
-
-	localStorage.Save(fmt.Sprintf("%s.jpeg", randomUUID), gifImage)
 }
