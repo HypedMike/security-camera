@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Frame difference</title>
+<style>
+  :root { --bg: #fff; --fg: #1a1a1a; --muted: #777; --grid: #e5e5e5; --line: #2563eb; }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg: #111; --fg: #eee; --muted: #999; --grid: #2a2a2a; --line: #60a5fa; }
+  }
+  body { margin: 0; padding: 16px; background: var(--bg); color: var(--fg); font: 14px system-ui, sans-serif; }
+  h1 { font-size: 16px; margin: 0 0 4px; }
+  #value { font-size: 32px; font-variant-numeric: tabular-nums; }
+  #status { color: var(--muted); }
+  canvas { width: 100%; height: 360px; display: block; margin-top: 12px; }
+</style>
+</head>
+<body>
+<h1>Frame difference</h1>
+<div><span id="value">–</span> <span id="status">connecting…</span></div>
+<canvas id="chart"></canvas>
+<script>
+const MAX = 300;
+const points = [];
+const canvas = document.getElementById('chart');
+const ctx = canvas.getContext('2d');
+const css = n => getComputedStyle(document.documentElement).getPropertyValue(n);
+
+function draw() {
+  const dpr = window.devicePixelRatio || 1;
+  const w = canvas.clientWidth, h = canvas.clientHeight;
+  canvas.width = w * dpr; canvas.height = h * dpr;
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.clearRect(0, 0, w, h);
+
+  const left = 48, bottom = 4, top = 8;
+  const max = Math.max(0.05, ...points.map(p => p[1])) * 1.1;
+  const y = v => top + (h - top - bottom) * (1 - v / max);
+  const x = i => left + (w - left) * (i / (MAX - 1));
+
+  ctx.font = '11px system-ui'; ctx.fillStyle = css('--muted'); ctx.strokeStyle = css('--grid');
+  ctx.lineWidth = 1;
+  for (let i = 0; i <= 4; i++) {
+    const v = max * i / 4, yy = Math.round(y(v)) + 0.5;
+    ctx.beginPath(); ctx.moveTo(left, yy); ctx.lineTo(w, yy); ctx.stroke();
+    ctx.fillText(v.toFixed(3), 4, yy + 4);
+  }
+  if (!points.length) return;
+
+  ctx.strokeStyle = css('--line'); ctx.lineWidth = 2; ctx.lineJoin = 'round';
+  ctx.beginPath();
+  const off = MAX - points.length;
+  points.forEach((p, i) => i ? ctx.lineTo(x(off + i), y(p[1])) : ctx.moveTo(x(off + i), y(p[1])));
+  ctx.stroke();
+}
+
+const es = new EventSource('/events');
+es.onopen = () => document.getElementById('status').textContent = 'live';
+es.onerror = () => document.getElementById('status').textContent = 'disconnected, retrying…';
+es.onmessage = e => {
+  const p = JSON.parse(e.data);
+  points.push(p);
+  if (points.length > MAX) points.shift();
+  document.getElementById('value').textContent = p[1].toFixed(4);
+  requestAnimationFrame(draw);
+};
+window.addEventListener('resize', draw);
+</script>
+</body>
+</html>
