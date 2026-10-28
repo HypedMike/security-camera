@@ -34,6 +34,11 @@ func main() {
 	if err != nil {
 		panic(fmt.Errorf("%w (set them in .env)", err))
 	}
+
+	bot.AddListener(func(m telegram.Message) {
+		fmt.Printf("Telegram message from %s: %s\n", m.From, m.Text)
+	})
+
 	threshold, err := strconv.ParseFloat(os.Getenv("ALARM_THRESHOLD"), 64)
 	if err != nil {
 		panic(fmt.Errorf("ALARM_THRESHOLD: %w", err))
@@ -88,6 +93,12 @@ func main() {
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer stop()
+
+	go func() {
+		if err := bot.Run(ctx); err != nil && !errors.Is(err, context.Canceled) {
+			fmt.Fprintln(os.Stderr, err)
+		}
+	}()
 
 	if err := stream.Run(ctx); err != nil && !errors.Is(err, context.Canceled) {
 		panic(err)
