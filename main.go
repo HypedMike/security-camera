@@ -193,6 +193,14 @@ func main() {
 		}
 	}()
 
+	// the camera is open and the stream is about to start
+	go func() {
+		host, _ := os.Hostname()
+		if err := bot.SendMessage(fmt.Sprintf("Security camera is up and running on %s", host)); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+		}
+	}()
+
 	if err := stream.Run(ctx); err != nil && !errors.Is(err, context.Canceled) {
 		panic(err)
 	}
