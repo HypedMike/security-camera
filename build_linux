@@ -1,0 +1,26 @@
+#!/usr/bin/env bash
+# Builds the security camera on Linux. cgo is required: without it the V4L2
+# camera driver is left out of the binary and no camera is ever found.
+set -euo pipefail
+cd "$(dirname "$0")"
+
+if [ "$(uname -s)" != "Linux" ]; then
+	echo "build_linux must run on Linux (cgo can't cross-compile the camera driver)" >&2
+	exit 1
+fi
+if ! command -v go >/dev/null; then
+	echo "go not found: install Go 1.24 or newer from https://go.dev/dl" >&2
+	exit 1
+fi
+if ! command -v gcc >/dev/null || [ ! -f /usr/include/linux/videodev2.h ]; then
+	echo "missing C toolchain, run: sudo apt install build-essential linux-libc-dev" >&2
+	exit 1
+fi
+
+CGO_ENABLED=1 go build -o securitycamera .
+
+if ! go version -m securitycamera | grep -q 'CGO_ENABLED=1'; then
+	echo "built without cgo, the camera driver is missing" >&2
+	exit 1
+fi
+echo "built ./securitycamera"
