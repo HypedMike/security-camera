@@ -5,7 +5,9 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"strconv"
 	"strings"
+	"time"
 )
 
 // Load reads KEY=VALUE lines from path into the process environment.
@@ -49,7 +51,7 @@ type Var struct {
 }
 
 // Ensure asks on out/in for every variable that is unset or empty, then sets
-// it and appends it to the file at path (created with mode 0600, since it
+// it and saves it in the file at path (created with mode 0600, since it
 // holds secrets) so it is found on the next start.
 func Ensure(path string, in io.Reader, out io.Writer, vars ...Var) error {
 	r := bufio.NewReader(in)
@@ -76,7 +78,7 @@ func Ensure(path string, in io.Reader, out io.Writer, vars ...Var) error {
 			}
 			break
 		}
-		if err := save(path, v.Key, value); err != nil {
+		if err := Save(path, v.Key, value); err != nil {
 			return err
 		}
 		os.Setenv(v.Key, value)
@@ -84,14 +86,76 @@ func Ensure(path string, in io.Reader, out io.Writer, vars ...Var) error {
 	return nil
 }
 
-func save(path, key, value string) error {
-	f, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
-	if err != nil {
+// Save sets key=value in the file at path: lines already defining key are
+// replaced, otherwise a line is appended. The file is created with mode 0600.
+func Save(path, key, value string) error {
+	data, err := os.ReadFile(path)
+	if err != nil && !os.IsNotExist(err) {
 		return err
 	}
-	if _, err := fmt.Fprintf(f, "%s=%s\n", key, value); err != nil {
-		f.Close()
-		return err
+	var lines []string
+	if len(data) > 0 {
+		lines = strings.Split(strings.TrimRight(string(data), "\n"), "\n")
 	}
-	return f.Close()
+	line := key + "=" + value
+	found := false
+	out := lines[:0]
+	for _, l := range lines {
+		k, _, ok := strings.Cut(strings.TrimSpace(l), "=")
+		if ok && strings.TrimSpace(k) == key {
+			if !found {
+				out = append(out, line)
+			}
+			found = true
+			continue
+		}
+		out = append(out, l)
+	}
+	if !found {
+		out = append(out, line)
+	}
+	return os.WriteFile(path, []byte(strings.Join(out, "\n")+"\n"), 0o600)
+}
+
+// Choose lists options on out and reads the number of one from in. If nothing
+// is entered within timeout (or the input is closed), the first option is
+// returned. Invalid entries ask again; the timeout restarts only with the
+// whole call, not per entry.
+func Choose(in io.Reader, out io.Writer, prompt string, options []string, timeout time.Duration) int {
+	fmt.Fprintln(out, prompt)
+	for i, o := range options {
+		fmt.Fprintf(out, "  %d) %s\n", i+1, o)
+	}
+	lines := make(chan string)
+	go func() { // may outlive the call if the timeout fires; it only blocks on the read
+		r := bufio.NewReader(in)
+		for {
+			line, err := r.ReadString('\n')
+			if strings.TrimSpace(line) != "" {
+				lines <- strings.TrimSpace(line)
+			}
+			if err != nil {
+				close(lines)
+				return
+			}
+		}
+	}()
+	deadline := time.After(timeout)
+	for {
+		fmt.Fprintf(out, "Choose 1-%d [1 in %ds]: ", len(options), int(timeout.Seconds()))
+		select {
+		case line, ok := <-lines:
+			if !ok {
+				fmt.Fprintln(out)
+				return 0
+			}
+			if n, err := strconv.Atoi(line); err == nil && n >= 1 && n <= len(options) {
+				return n - 1
+			}
+			fmt.Fprintln(out, "invalid choice")
+		case <-deadline:
+			fmt.Fprintf(out, "\nno answer, using %s\n", options[0])
+			return 0
+		}
+	}
 }

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"flag"
 	"fmt"
 	"image"
 	"image/jpeg"
@@ -34,7 +35,46 @@ func envBool(key string) bool {
 	return v
 }
 
+// cameraChoiceTimeout is how long the camera prompt waits before using the first camera.
+const cameraChoiceTimeout = 5 * time.Second
+
+// pickCamera returns the id of the camera to use. The choice is kept in
+// CAMERA_ID; it is asked again only when refetch is set, nothing is saved yet
+// or the saved camera is gone. With a single camera there is nothing to ask.
+func pickCamera(refetch bool) (string, error) {
+	devs := my_video.Devices()
+	switch len(devs) {
+	case 0:
+		// let Open try the default camera and report the driver's own error
+		fmt.Fprintln(os.Stderr, "no camera listed, trying the default one")
+		return "", nil
+	case 1:
+		return devs[0].ID, nil
+	}
+	if saved := os.Getenv("CAMERA_ID"); saved != "" && !refetch {
+		for _, d := range devs {
+			if d.ID == saved {
+				return saved, nil
+			}
+		}
+		fmt.Println("saved camera not found, choosing again")
+	}
+	labels := make([]string, len(devs))
+	for i, d := range devs {
+		labels[i] = d.Label
+	}
+	chosen := devs[env.Choose(os.Stdin, os.Stdout, "Several cameras found:", labels, cameraChoiceTimeout)]
+	if err := env.Save(".env", "CAMERA_ID", chosen.ID); err != nil {
+		return "", err
+	}
+	os.Setenv("CAMERA_ID", chosen.ID)
+	return chosen.ID, nil
+}
+
 func main() {
+	fetchCamera := flag.Bool("fetch-camera", false, "list the cameras again and choose one, even if one is already saved")
+	flag.Parse()
+
 	if err := env.Load(".env"); err != nil {
 		panic(err)
 	}
@@ -75,7 +115,11 @@ func main() {
 	}
 	var lastAlarm atomic.Int64 // unix nanos
 
-	video, err := my_video.Open(my_video.DefaultConfig)
+	cfg := my_video.DefaultConfig
+	if cfg.DeviceID, err = pickCamera(*fetchCamera); err != nil {
+		panic(err)
+	}
+	video, err := my_video.Open(cfg)
 	if err != nil {
 		panic(err)
 	}

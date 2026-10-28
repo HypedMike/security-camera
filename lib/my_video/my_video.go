@@ -14,6 +14,25 @@ type Config struct {
 	Height int
 	// WarmupFrames are read and discarded on open so auto-exposure can settle.
 	WarmupFrames int
+	// DeviceID selects the camera (see Devices); empty means the default one.
+	DeviceID string
+}
+
+// Device is an available camera.
+type Device struct {
+	ID    string
+	Label string
+}
+
+// Devices lists the cameras currently available, in driver order.
+func Devices() []Device {
+	var devs []Device
+	for _, d := range mediadevices.EnumerateDevices() {
+		if d.Kind == mediadevices.VideoInput {
+			devs = append(devs, Device{ID: d.DeviceID, Label: d.Label})
+		}
+	}
+	return devs
 }
 
 var DefaultConfig = Config{Width: 640, Height: 480, WarmupFrames: 30}
@@ -28,6 +47,9 @@ func Open(cfg Config) (*Video, error) {
 	stream, err := mediadevices.GetUserMedia(mediadevices.MediaStreamConstraints{
 		Video: func(c *mediadevices.MediaTrackConstraints) {
 			c.FrameFormat = prop.FrameFormat(frame.FormatYUY2)
+			if cfg.DeviceID != "" {
+				c.DeviceID = prop.StringExact(cfg.DeviceID)
+			}
 			c.Width = prop.Int(cfg.Width)
 			c.Height = prop.Int(cfg.Height)
 		},
