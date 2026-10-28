@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"os"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 )
@@ -39,6 +40,16 @@ type Message struct {
 	// From is the sender's username, or their first name if they have none.
 	From string
 	Time time.Time
+}
+
+// Command returns the command in a message like "/snap" or "/snap@mybot arg"
+// without the slash, or "" if the message is not a command.
+func (m Message) Command() string {
+	if !strings.HasPrefix(m.Text, "/") {
+		return ""
+	}
+	word, _, _ := strings.Cut(strings.Fields(m.Text)[0], "@")
+	return word[1:]
 }
 
 // Listener is called for every message received in the configured chat.
@@ -82,24 +93,33 @@ func (b *Bot) SendMessage(text string) error {
 
 // SendAnimation uploads a GIF to the configured chat with an optional caption.
 func (b *Bot) SendAnimation(gif []byte, caption string) error {
+	return b.upload("sendAnimation", "animation", "alarm.gif", gif, caption)
+}
+
+// SendPhoto uploads a JPEG to the configured chat with an optional caption.
+func (b *Bot) SendPhoto(jpeg []byte, caption string) error {
+	return b.upload("sendPhoto", "photo", "snap.jpg", jpeg, caption)
+}
+
+func (b *Bot) upload(method, field, filename string, data []byte, caption string) error {
 	var body bytes.Buffer
 	w := multipart.NewWriter(&body)
 	w.WriteField("chat_id", b.chatID)
 	if caption != "" {
 		w.WriteField("caption", caption)
 	}
-	part, err := w.CreateFormFile("animation", "alarm.gif")
+	part, err := w.CreateFormFile(field, filename)
 	if err != nil {
 		return err
 	}
-	if _, err := part.Write(gif); err != nil {
+	if _, err := part.Write(data); err != nil {
 		return err
 	}
 	if err := w.Close(); err != nil {
 		return err
 	}
 
-	resp, err := b.client.Post(fmt.Sprintf("%s/bot%s/sendAnimation", b.api, b.token), w.FormDataContentType(), &body)
+	resp, err := b.client.Post(fmt.Sprintf("%s/bot%s/%s", b.api, b.token, method), w.FormDataContentType(), &body)
 	if err != nil {
 		return errors.New("telegram: request failed")
 	}

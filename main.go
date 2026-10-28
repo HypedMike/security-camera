@@ -1,10 +1,12 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
 	"image"
+	"image/jpeg"
 	"os"
 	"os/signal"
 	"strconv"
@@ -59,6 +61,14 @@ func main() {
 		})
 	}
 
+	// /snap asks the stream handler to send the next frame
+	var snapRequested atomic.Bool
+	bot.AddListener(func(m telegram.Message) {
+		if m.Command() == "snap" {
+			snapRequested.Store(true)
+		}
+	})
+
 	threshold, err := strconv.ParseFloat(os.Getenv("ALARM_THRESHOLD"), 64)
 	if err != nil {
 		panic(fmt.Errorf("ALARM_THRESHOLD: %w", err))
@@ -80,6 +90,23 @@ func main() {
 	fmt.Println("live graph at http://localhost:8080")
 
 	stream := streaming.New(video.Track(), streaming.Options{History: 10})
+
+	stream.AddHandler(func(frame image.Image, _ []image.Image, ts time.Time) {
+		if !snapRequested.CompareAndSwap(true, false) {
+			return
+		}
+		// encode now: the frame is only valid until this handler returns
+		var buf bytes.Buffer
+		err := jpeg.Encode(&buf, frame, &jpeg.Options{Quality: 85})
+		go func() {
+			if err == nil {
+				err = bot.SendPhoto(buf.Bytes(), "Snapshot at "+ts.Format("15:04:05"))
+			}
+			if err != nil {
+				fmt.Fprintln(os.Stderr, "snap:", err)
+			}
+		}()
+	})
 
 	stream.AddHandler(func(frame image.Image, history []image.Image, ts time.Time) {
 		if len(history) == 0 {

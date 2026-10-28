@@ -102,3 +102,34 @@ func TestListeners(t *testing.T) {
 		t.Errorf("first offset = %s", offsets[0])
 	}
 }
+
+func TestSendPhotoAndCommand(t *testing.T) {
+	var gotPath string
+	var file []byte
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotPath = r.URL.Path
+		r.ParseMultipartForm(1 << 20)
+		f, _, err := r.FormFile("photo")
+		if err != nil {
+			t.Error(err)
+			return
+		}
+		file, _ = io.ReadAll(f)
+	}))
+	defer srv.Close()
+
+	b, _ := New("TOKEN", "1")
+	b.api = srv.URL
+	if err := b.SendPhoto([]byte("JPG"), ""); err != nil {
+		t.Fatal(err)
+	}
+	if gotPath != "/botTOKEN/sendPhoto" || string(file) != "JPG" {
+		t.Errorf("unexpected request: %s %q", gotPath, file)
+	}
+
+	for text, want := range map[string]string{"/snap": "snap", "/snap@mybot now": "snap", "hello": "", "/": ""} {
+		if got := (Message{Text: text}).Command(); got != want {
+			t.Errorf("Command(%q) = %q, want %q", text, got, want)
+		}
+	}
+}
