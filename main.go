@@ -26,8 +26,25 @@ const alarmCooldown = 30 * time.Second
 // gifFrameDelay is the pause between GIF frames, in hundredths of a second.
 const gifFrameDelay = 10
 
+// envBool reports whether the variable is set to a true value (1, true, ...).
+func envBool(key string) bool {
+	v, _ := strconv.ParseBool(os.Getenv(key))
+	return v
+}
+
 func main() {
 	if err := env.Load(".env"); err != nil {
+		panic(err)
+	}
+	err := env.Ensure(".env", os.Stdin, os.Stdout,
+		env.Var{Key: "TELEGRAM_BOT_TOKEN", Prompt: "Telegram bot token from @BotFather"},
+		env.Var{Key: "TELEGRAM_CHAT_ID", Prompt: "Telegram chat id"},
+		env.Var{Key: "ALARM_THRESHOLD", Prompt: "Frame difference at or above which an alarm is sent, e.g. 0.05", Validate: func(s string) error {
+			_, err := strconv.ParseFloat(s, 64)
+			return err
+		}},
+	)
+	if err != nil {
 		panic(err)
 	}
 	bot, err := telegram.New(os.Getenv("TELEGRAM_BOT_TOKEN"), os.Getenv("TELEGRAM_CHAT_ID"))
@@ -35,9 +52,12 @@ func main() {
 		panic(fmt.Errorf("%w (set them in .env)", err))
 	}
 
-	bot.AddListener(func(m telegram.Message) {
-		fmt.Printf("Telegram message from %s: %s\n", m.From, m.Text)
-	})
+	printDiffs := envBool("PRINT_DIFFERENCES")
+	if envBool("PRINT_TELEGRAM_MESSAGES") {
+		bot.AddListener(func(m telegram.Message) {
+			fmt.Printf("Telegram message from %s: %s\n", m.From, m.Text)
+		})
+	}
 
 	threshold, err := strconv.ParseFloat(os.Getenv("ALARM_THRESHOLD"), 64)
 	if err != nil {
@@ -88,7 +108,9 @@ func main() {
 				}
 			}()
 		}
-		fmt.Printf("%s difference: %.4f\n", ts.Format("15:04:05.000"), diff)
+		if printDiffs {
+			fmt.Printf("%s difference: %.4f\n", ts.Format("15:04:05.000"), diff)
+		}
 	})
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
