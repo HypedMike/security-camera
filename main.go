@@ -80,13 +80,17 @@ func main() {
 	}
 	defer video.Close()
 
-	graph := livegraph.New()
-	go func() {
-		if err := graph.ListenAndServe(config.GraphAddr); err != nil {
-			panic(err)
-		}
-	}()
-	fmt.Println("live graph at http://localhost" + config.GraphAddr)
+	// the live graph is only served when LIVE_STREAM_GRAPH is set
+	var graph *livegraph.Graph
+	if env.Bool("LIVE_STREAM_GRAPH") {
+		graph = livegraph.New()
+		go func() {
+			if err := graph.ListenAndServe(config.GraphAddr); err != nil {
+				panic(err)
+			}
+		}()
+		fmt.Println("live graph at http://localhost" + config.GraphAddr)
+	}
 
 	stream := streaming.New(video.Track(), streaming.Options{History: config.StreamHistory})
 
@@ -134,7 +138,9 @@ func main() {
 			fmt.Fprintln(os.Stderr, "detection:", err)
 			return
 		}
-		graph.Push(diff)
+		if graph != nil {
+			graph.Push(diff)
+		}
 		if diff >= threshold && ts.Sub(mon.LastAlarm()) > config.AlarmCooldown {
 			mon.Alarm(ts)
 			caption := fmt.Sprintf("Alarm: motion detected at %s (difference %.4f)", ts.Format("15:04:05"), diff)
