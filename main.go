@@ -18,6 +18,7 @@ import (
 	"security_camera/lib/env"
 	"security_camera/lib/gif"
 	"security_camera/lib/livegraph"
+	"security_camera/lib/monitor"
 	"security_camera/lib/my_video"
 	"security_camera/lib/streaming"
 	"security_camera/lib/sysinfo"
@@ -72,36 +73,6 @@ func pickCamera(refetch bool) (string, error) {
 	return chosen.ID, nil
 }
 
-type cameraStats struct {
-	cameraID  string
-	threshold float64
-	started   time.Time
-	frames    int64
-	alarms    int64
-	lastFrame int64 // unix nanos, 0 if none yet
-	lastAlarm int64 // unix nanos, 0 if none yet
-}
-
-// cameraReport describes what the camera part of the program is doing.
-func cameraReport(s cameraStats) string {
-	ago := func(nanos int64) string {
-		if nanos == 0 {
-			return "never"
-		}
-		return time.Since(time.Unix(0, nanos)).Round(time.Second).String() + " ago"
-	}
-	id := s.cameraID
-	if id == "" {
-		id = "default"
-	}
-	fps := 0.0
-	if el := time.Since(s.started).Seconds(); el > 0 {
-		fps = float64(s.frames) / el
-	}
-	return fmt.Sprintf("Camera\n  device: %s\n  frames: %d (%.1f fps average)\n  last frame: %s\n  alarms sent: %d\n  last alarm: %s\n  alarm threshold: %g, cooldown %s",
-		id, s.frames, fps, ago(s.lastFrame), s.alarms, ago(s.lastAlarm), s.threshold, alarmCooldown)
-}
-
 func main() {
 	fetchCamera := flag.Bool("fetch-camera", false, "list the cameras again and choose one, even if one is already saved")
 	flag.Parse()
@@ -144,15 +115,12 @@ func main() {
 	if err != nil {
 		panic(fmt.Errorf("ALARM_THRESHOLD: %w", err))
 	}
-	var lastAlarm atomic.Int64 // unix nanos
-	var frames, alarms atomic.Int64
-	var lastFrame atomic.Int64 // unix nanos
-	started := time.Now()
 
 	cfg := my_video.DefaultConfig
 	if cfg.DeviceID, err = pickCamera(*fetchCamera); err != nil {
 		panic(err)
 	}
+	mon := monitor.New(cfg.DeviceID, threshold, alarmCooldown)
 	video, err := my_video.Open(cfg)
 	if err != nil {
 		panic(err)
@@ -176,15 +144,7 @@ func main() {
 		}
 		// the report takes a moment to measure, don't hold up the other messages
 		go func() {
-			report := sysinfo.Report(".") + "\n\n" + cameraReport(cameraStats{
-				cameraID:  cfg.DeviceID,
-				threshold: threshold,
-				started:   started,
-				frames:    frames.Load(),
-				alarms:    alarms.Load(),
-				lastFrame: lastFrame.Load(),
-				lastAlarm: lastAlarm.Load(),
-			})
+			report := sysinfo.Report(".") + "\n\n" + mon.Report()
 			if err := bot.SendMessage(report); err != nil {
 				fmt.Fprintln(os.Stderr, "info:", err)
 			}
@@ -192,8 +152,7 @@ func main() {
 	})
 
 	stream.AddHandler(func(_ image.Image, _ []image.Image, ts time.Time) {
-		frames.Add(1)
-		lastFrame.Store(ts.UnixNano())
+		mon.Frame(ts)
 	})
 
 	stream.AddHandler(func(frame image.Image, _ []image.Image, ts time.Time) {
@@ -223,9 +182,8 @@ func main() {
 			return
 		}
 		graph.Push(diff)
-		if diff >= threshold && ts.UnixNano()-lastAlarm.Load() > int64(alarmCooldown) {
-			lastAlarm.Store(ts.UnixNano())
-			alarms.Add(1)
+		if diff >= threshold && ts.Sub(mon.LastAlarm()) > alarmCooldown {
+			mon.Alarm(ts)
 			caption := fmt.Sprintf("Alarm: motion detected at %s (difference %.4f)", ts.Format("15:04:05"), diff)
 			// encode now: the frames are only valid until this handler returns
 			animation, err := gif.Encode(append(history, frame), gifFrameDelay)
