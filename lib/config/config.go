@@ -15,8 +15,15 @@ const CameraChoiceTimeout = 5 * time.Second
 // EnvFile is the file the settings are loaded from and saved to.
 const EnvFile = ".env"
 
-// StreamHistory is how many past frames are passed to the stream handlers.
-const StreamHistory = 10
+// StreamHistory is how many past frames the stack keeps by default (n).
+const StreamHistory = 300
+
+// GIFFrames is how many of the latest frames an alarm GIF contains by default (m).
+const GIFFrames = 150
+
+// DetectionFrames is how many of the latest frames the difference is
+// computed on by default (t).
+const DetectionFrames = 30
 
 // GraphAddr is the address the live graph is served on.
 const GraphAddr = ":8080"

@@ -10,6 +10,7 @@ import (
 
 	"security_camera/lib/config"
 	"security_camera/lib/monitor"
+	"security_camera/lib/streaming"
 	"security_camera/lib/sysinfo"
 	"security_camera/lib/telegram"
 	"security_camera/lib/update"
@@ -31,14 +32,37 @@ type commandState struct {
 //	/pause   stops sending alarms
 //	/resume  starts sending alarms again
 //	/threshold [value]  shows or changes the alarm threshold
+//	/stack [n]   shows or changes how many frames are kept (default 300)
+//	/detect [t]  shows or changes how many of the latest frames the difference uses (default 30)
+//	/gif [m]     shows or changes how many of the latest frames an alarm GIF has (default 150)
 //	/update  pulls, rebuilds and restarts the program
 //
 // cancel stops the stream, which is how /update makes main restart.
-func initTelegramCommands(ctx context.Context, cancel context.CancelFunc, bot *telegram.Bot, mon *monitor.Monitor, state *commandState) {
+func initTelegramCommands(ctx context.Context, cancel context.CancelFunc, bot *telegram.Bot, mon *monitor.Monitor, stream *streaming.Stream, state *commandState) {
 	reply := func(command, text string) {
 		if err := bot.SendMessage(text); err != nil {
 			fmt.Fprintf(os.Stderr, "%s: %v\n", command, err)
 		}
+	}
+
+	// setting shows an integer setting, or changes it to the value in the
+	// message; apply returns why the value is refused, or "" once it is set.
+	setting := func(m telegram.Message, command, what string, get func() int, apply func(int) string) {
+		args := m.Args()
+		if len(args) == 0 {
+			go reply(command, fmt.Sprintf("%s: %d. Send /%s <number> to change it.", what, get(), command))
+			return
+		}
+		v, err := strconv.Atoi(args[0])
+		if err != nil {
+			go reply(command, fmt.Sprintf("Usage: /%s <whole number>", command))
+			return
+		}
+		if why := apply(v); why != "" {
+			go reply(command, fmt.Sprintf("Not changed: %s", why))
+			return
+		}
+		go reply(command, fmt.Sprintf("%s set to %d (until the next restart).", what, v))
 	}
 
 	var updating atomic.Bool
@@ -74,6 +98,43 @@ func initTelegramCommands(ctx context.Context, cancel context.CancelFunc, bot *t
 			}
 			mon.SetThreshold(t)
 			go reply("threshold", fmt.Sprintf("Alarm threshold set to %g (until the next restart).", t))
+		},
+
+		"stack": func(m telegram.Message) {
+			// n must hold the frames t and m ask for, one of which is the current frame
+			setting(m, "stack", "frames kept", stream.History, func(n int) string {
+				if n < max(mon.DetectionFrames(), mon.GIFFrames()) {
+					return fmt.Sprintf("Must be at least %d, the larger of /detect and /gif.", max(mon.DetectionFrames(), mon.GIFFrames()))
+				}
+				stream.SetHistory(n)
+				return ""
+			})
+		},
+
+		"detect": func(m telegram.Message) {
+			setting(m, "detect", "frames used for the difference", mon.DetectionFrames, func(t int) string {
+				if t < 2 {
+					return "Must be at least 2."
+				}
+				if t > stream.History() {
+					return fmt.Sprintf("Must be at most %d, the /stack size.", stream.History())
+				}
+				mon.SetDetectionFrames(t)
+				return ""
+			})
+		},
+
+		"gif": func(m telegram.Message) {
+			setting(m, "gif", "frames in the alarm GIF", mon.GIFFrames, func(n int) string {
+				if n < 2 {
+					return "Must be at least 2."
+				}
+				if n > stream.History() {
+					return fmt.Sprintf("Must be at most %d, the /stack size.", stream.History())
+				}
+				mon.SetGIFFrames(n)
+				return ""
+			})
 		},
 
 		"update": func(telegram.Message) {
