@@ -3,12 +3,16 @@ package main
 import (
 	"context"
 	"fmt"
+	"maps"
 	"math"
 	"os"
+	"slices"
 	"strconv"
+	"strings"
 	"sync/atomic"
 
 	"security_camera/lib/config"
+	"security_camera/lib/detection"
 	"security_camera/lib/monitor"
 	"security_camera/lib/streaming"
 	"security_camera/lib/sysinfo"
@@ -31,14 +35,15 @@ type commandState struct {
 //	/info    reports the state of the machine and of the program
 //	/pause   stops sending alarms
 //	/resume  starts sending alarms again
-//	/threshold [value]  shows or changes the alarm threshold
+//	/threshold [value]  shows or changes the alarm threshold of the detector in use
+//	/detector [name]    shows or changes the motion detector
 //	/stack [n]   shows or changes how many frames are kept (default 300)
-//	/detect [t]  shows or changes how many of the latest frames the difference uses (default 30)
+//	/detect [t]  shows or changes how many of the latest frames the difference detector uses (default 30)
 //	/gif [m]     shows or changes how many of the latest frames an alarm GIF has (default 150)
 //	/update  pulls, rebuilds and restarts the program
 //
 // cancel stops the stream, which is how /update makes main restart.
-func initTelegramCommands(ctx context.Context, cancel context.CancelFunc, bot *telegram.Bot, mon *monitor.Monitor, stream *streaming.Stream, state *commandState) {
+func initTelegramCommands(ctx context.Context, cancel context.CancelFunc, bot *telegram.Bot, mon *monitor.Monitor, stream *streaming.Stream, detectors map[string]detection.Detector, state *commandState) {
 	reply := func(command, text string) {
 		if err := bot.SendMessage(text); err != nil {
 			fmt.Fprintf(os.Stderr, "%s: %v\n", command, err)
@@ -88,16 +93,32 @@ func initTelegramCommands(ctx context.Context, cancel context.CancelFunc, bot *t
 		"threshold": func(m telegram.Message) {
 			args := m.Args()
 			if len(args) == 0 {
-				go reply("threshold", fmt.Sprintf("Alarm threshold is %g. Send /threshold <value> to change it.", mon.Threshold()))
+				go reply("threshold", fmt.Sprintf("Alarm threshold of the %s detector is %g. Send /threshold <value> to change it.", mon.Detector(), mon.Threshold()))
 				return
 			}
 			t, err := strconv.ParseFloat(args[0], 64)
 			if err != nil || math.IsNaN(t) || t < 0 || t > 1 {
-				go reply("threshold", "Usage: /threshold <value between 0 and 1>, e.g. /threshold 0.05")
+				go reply("threshold", fmt.Sprintf("Usage: /threshold <value between 0 and 1>, e.g. /threshold %g", mon.Threshold()))
 				return
 			}
 			mon.SetThreshold(t)
-			go reply("threshold", fmt.Sprintf("Alarm threshold set to %g (until the next restart).", t))
+			go reply("threshold", fmt.Sprintf("Alarm threshold of the %s detector set to %g (until the next restart).", mon.Detector(), t))
+		},
+
+		"detector": func(m telegram.Message) {
+			names := strings.Join(slices.Sorted(maps.Keys(detectors)), ", ")
+			args := m.Args()
+			if len(args) == 0 {
+				go reply("detector", fmt.Sprintf("Motion detector is %s (threshold %g). Available: %s. Send /detector <name> to change it.", mon.Detector(), mon.Threshold(), names))
+				return
+			}
+			name := strings.ToLower(args[0])
+			if _, ok := detectors[name]; !ok {
+				go reply("detector", fmt.Sprintf("Unknown detector %q. Available: %s.", args[0], names))
+				return
+			}
+			mon.SetDetector(name)
+			go reply("detector", fmt.Sprintf("Motion detector set to %s, threshold %g (until the next restart).", name, mon.Threshold()))
 		},
 
 		"stack": func(m telegram.Message) {
@@ -112,7 +133,7 @@ func initTelegramCommands(ctx context.Context, cancel context.CancelFunc, bot *t
 		},
 
 		"detect": func(m telegram.Message) {
-			setting(m, "detect", "frames used for the difference", mon.DetectionFrames, func(t int) string {
+			setting(m, "detect", "frames used by the difference detector", mon.DetectionFrames, func(t int) string {
 				if t < 2 {
 					return "Must be at least 2."
 				}
