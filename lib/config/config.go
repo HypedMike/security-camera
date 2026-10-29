@@ -1,7 +1,10 @@
 // Package config holds the fixed settings of the security camera.
 package config
 
-import "time"
+import (
+	"sync"
+	"time"
+)
 
 // AlarmCooldown is the minimum time between two Telegram notifications.
 const AlarmCooldown = 5 * time.Second
@@ -89,3 +92,55 @@ const UpdateScript = "./update"
 
 // UpdateTimeout is how long the update script may run.
 const UpdateTimeout = 10 * time.Minute
+
+// Values are the fixed settings above that /edit_config can change while the
+// program runs.
+type Values struct {
+	AlarmDelay time.Duration
+
+	HDGIFFrameStep  int
+	HDGIFFrameDelay int
+	HDGIFWidth      int
+	HDGIFDither     bool
+
+	LowGIFFrameStep  int
+	LowGIFFrameDelay int
+	LowGIFWidth      int
+
+	SnapJPEGQuality int
+}
+
+// Live holds the current Values. It is safe for concurrent use.
+type Live struct {
+	mu sync.RWMutex
+	v  Values
+}
+
+// NewLive returns a Live that starts at the constants above.
+func NewLive() *Live {
+	return &Live{v: Values{
+		AlarmDelay:       AlarmDelay,
+		HDGIFFrameStep:   HDGIFFrameStep,
+		HDGIFFrameDelay:  HDGIFFrameDelay,
+		HDGIFWidth:       HDGIFWidth,
+		HDGIFDither:      HDGIFDither,
+		LowGIFFrameStep:  LowGIFFrameStep,
+		LowGIFFrameDelay: LowGIFFrameDelay,
+		LowGIFWidth:      LowGIFWidth,
+		SnapJPEGQuality:  SnapJPEGQuality,
+	}}
+}
+
+// Get returns the current values.
+func (l *Live) Get() Values {
+	l.mu.RLock()
+	defer l.mu.RUnlock()
+	return l.v
+}
+
+// Set replaces the current values. The caller checks that they are valid.
+func (l *Live) Set(v Values) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.v = v
+}

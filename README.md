@@ -8,7 +8,7 @@ It watches the camera, and when it sees motion above a threshold it sends a shor
 
 ## Features
 
-- **Motion detection**, with two interchangeable detectors (`DETECTOR` setting or `/detector` command):
+- **Motion detection**, with two interchangeable detectors (`DETECTOR` setting or `detector` in `/edit_config`):
   - `background` (default): learns what the empty scene looks like and alarms when a moving blob covers at least `BACKGROUND_THRESHOLD` of the frame. Picks up small or distant movement and ignores lights switching on.
   - `difference`: compares the last frames pixel by pixel and alarms when the average difference reaches `DIFFERENCE_THRESHOLD`.
 - **Telegram alerts**: the alarm is sent as a tiny, low quality animated GIF (about 5 s, 160x120) with a timestamp, the detector, its score and a code. Send `/hd <code>` to get the good quality version (640x480, dithered). The HD GIFs are saved in `gifs/`, at most 1 GB: past that the oldest are deleted and their code stops working. The alarm is sent 3 s after the motion is detected, so the GIF also shows what happens after the first detection. Alarms are rate-limited (5 s cooldown).
@@ -22,8 +22,7 @@ It watches the camera, and when it sees motion above a threshold it sends a shor
   | `/update` | Pulls the latest code, rebuilds and restarts          |
   | `/pause`  | Stops sending alarms (the camera keeps running)       |
   | `/resume` | Starts sending alarms again                           |
-  | `/threshold [value]` | Shows or changes the alarm threshold (0 to 1) of the detector in use until the next restart |
-  | `/detector [name]` | Shows or changes the motion detector (`background` or `difference`) until the next restart |
+  | `/edit_config [json]` | Without arguments, sends all the settings as JSON (detector, thresholds, frame counts, cooldown, delay, GIF and snapshot quality). Followed by that JSON, changes them until the next restart; keys left out keep their value and nothing changes if any value is invalid |
 
 - **Live graph** (optional): a web page at `http://localhost:8080` plotting the motion score in real time, handy for tuning the threshold.
 - **Guided setup**: missing settings are asked for at startup and saved to `.env`; the camera is chosen interactively and remembered.
@@ -81,10 +80,10 @@ Fixed settings (cooldown, GIF speed, size and frame step for both qualities, the
 
 ## Detectors and thresholds
 
-Each detector has its own score and its own threshold; `/threshold` changes the one of the detector in use.
+Each detector has its own score and its own threshold; `/edit_config` changes both (`background_threshold`, `difference_threshold`).
 
 - **background**: frames are shrunk to 320 pixels wide in grayscale and compared with a per-pixel model of the scene (running mean and variance). Pixels that moved away from their usual value are grouped into blobs, and the score is the area of the largest blob as a fraction of the frame: `0.003` is about 230 of the 76,800 detection pixels. A frame where more than half the picture changes at once is taken as a lighting change and ignored while the model relearns, and a score must hold for 3 of the last 5 frames. Someone who stops moving fades into the background after roughly 900 frames.
-- **difference**: the average absolute RGB change between consecutive frames over the last `/detect` frames, normalized from 0 (identical) to 1 (black to white).
+- **difference**: the average absolute RGB change between consecutive frames over the last `detection_frames` frames (`/edit_config`), normalized from 0 (identical) to 1 (black to white).
 
 To tune one, turn on `LIVE_STREAM_GRAPH`, watch the graph with the room still and with someone moving, and set the threshold between the two.
 

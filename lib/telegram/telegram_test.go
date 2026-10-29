@@ -140,3 +140,17 @@ func TestSendPhotoAndCommand(t *testing.T) {
 		}
 	}
 }
+
+func TestMessagePayload(t *testing.T) {
+	for text, want := range map[string]string{
+		"/edit_config":                       "",
+		"/edit_config   ":                    "",
+		"/edit_config {\"a\": 1}":            `{"a": 1}`,
+		"/edit_config@bot\n{\n  \"a\": 1\n}": "{\n  \"a\": 1\n}",
+		"hello there":                        "",
+	} {
+		if got := (Message{Text: text}).Payload(); got != want {
+			t.Errorf("Payload(%q) = %q, want %q", text, got, want)
+		}
+	}
+}
