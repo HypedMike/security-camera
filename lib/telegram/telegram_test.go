@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"sync/atomic"
 	"testing"
 )
@@ -130,6 +131,12 @@ func TestSendPhotoAndCommand(t *testing.T) {
 	for text, want := range map[string]string{"/snap": "snap", "/snap@mybot now": "snap", "hello": "", "/": ""} {
 		if got := (Message{Text: text}).Command(); got != want {
 			t.Errorf("Command(%q) = %q, want %q", text, got, want)
+		}
+	}
+
+	for text, want := range map[string]string{"/threshold 0.1": "0.1", "/threshold@mybot 0.1 x": "0.1 x", "/snap": "", "hello there": ""} {
+		if got := strings.Join((Message{Text: text}).Args(), " "); got != want {
+			t.Errorf("Args(%q) = %q, want %q", text, got, want)
 		}
 	}
 }

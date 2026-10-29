@@ -52,6 +52,14 @@ func (m Message) Command() string {
 	return word[1:]
 }
 
+// Args returns the words after the command, e.g. ["0.1"] for "/threshold 0.1".
+func (m Message) Args() []string {
+	if f := strings.Fields(m.Text); strings.HasPrefix(m.Text, "/") && len(f) > 1 {
+		return f[1:]
+	}
+	return nil
+}
+
 // Listener is called for every message received in the configured chat.
 type Listener func(Message)
 
