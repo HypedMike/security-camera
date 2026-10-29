@@ -24,6 +24,7 @@ import (
 	"security_camera/lib/streaming"
 	"security_camera/lib/sysinfo"
 	"security_camera/lib/telegram"
+	"security_camera/lib/update"
 )
 
 func main() {
@@ -55,6 +56,11 @@ func main() {
 			fmt.Printf("Telegram message from %s: %s\n", m.From, m.Text)
 		})
 	}
+
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
+	defer stop()
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
 
 	// /snap asks the stream handler to send the next frame
 	var snapRequested atomic.Bool
@@ -105,6 +111,33 @@ func main() {
 			if err := bot.SendMessage(report); err != nil {
 				fmt.Fprintln(os.Stderr, "info:", err)
 			}
+		}()
+	})
+
+	// /update pulls and rebuilds, then stops the stream so main can restart
+	var updating atomic.Bool
+	var restart atomic.Bool
+	bot.AddListener(func(m telegram.Message) {
+		if m.Command() != "update" || !updating.CompareAndSwap(false, true) {
+			return
+		}
+		// the build takes a while, don't hold up the other messages
+		go func() {
+			reply := func(text string) {
+				if err := bot.SendMessage(text); err != nil {
+					fmt.Fprintln(os.Stderr, "update:", err)
+				}
+			}
+			reply("Updating...")
+			out, err := update.Build(ctx, config.UpdateScript, config.UpdateTimeout)
+			if err != nil {
+				updating.Store(false)
+				reply("Update failed, still running the old version:\n" + update.Tail(out+"\n"+err.Error(), 3000))
+				return
+			}
+			reply(update.Tail(out, 3000) + "\nRestarting...")
+			restart.Store(true)
+			cancel()
 		}()
 	})
 
@@ -163,9 +196,6 @@ func main() {
 		}
 	})
 
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
-	defer stop()
-
 	go func() {
 		if err := bot.Run(ctx); err != nil && !errors.Is(err, context.Canceled) {
 			fmt.Fprintln(os.Stderr, err)
@@ -182,5 +212,13 @@ func main() {
 
 	if err := stream.Run(ctx); err != nil && !errors.Is(err, context.Canceled) {
 		panic(err)
+	}
+
+	if restart.Load() {
+		// release the camera so the new process can open it
+		video.Close()
+		err := update.Restart()
+		fmt.Fprintln(os.Stderr, "restart:", err)
+		os.Exit(1)
 	}
 }

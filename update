@@ -1,0 +1,17 @@
+#!/usr/bin/env bash
+# Pulls the latest code and rebuilds the security camera. The running program
+# calls this for the /update Telegram command and restarts itself afterwards.
+set -euo pipefail
+cd "$(dirname "$0")"
+
+before=$(git rev-parse --short HEAD)
+git pull --ff-only
+after=$(git rev-parse --short HEAD)
+
+./build_linux
+
+if [ "$before" = "$after" ]; then
+	echo "already at $after, rebuilt"
+else
+	echo "updated $before -> $after"
+fi

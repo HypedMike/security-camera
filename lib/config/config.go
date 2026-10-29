@@ -23,3 +23,9 @@ const GraphAddr = ":8080"
 
 // SnapJPEGQuality is the JPEG quality of the /snap photos.
 const SnapJPEGQuality = 85
+
+// UpdateScript is the script /update runs to pull and rebuild the program.
+const UpdateScript = "./update"
+
+// UpdateTimeout is how long the update script may run.
+const UpdateTimeout = 10 * time.Minute
