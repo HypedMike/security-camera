@@ -70,6 +70,8 @@ func main() {
 		panic(err)
 	}
 	mon := monitor.New(cfg.DeviceID, threshold, config.AlarmCooldown)
+	mon.SetDetectionFrames(config.DetectionFrames)
+	mon.SetGIFFrames(config.GIFFrames)
 	video, err := my_video.Open(cfg)
 	if err != nil {
 		panic(err)
@@ -91,7 +93,7 @@ func main() {
 	stream := streaming.New(video.Track(), streaming.Options{History: config.StreamHistory})
 
 	var cmds commandState
-	initTelegramCommands(ctx, cancel, bot, mon, &cmds)
+	initTelegramCommands(ctx, cancel, bot, mon, stream, &cmds)
 
 	stream.AddHandler(func(_ image.Image, _ []image.Image, ts time.Time) {
 		mon.Frame(ts)
@@ -130,7 +132,7 @@ func main() {
 			mon.Alarm(ts)
 			caption := fmt.Sprintf("Alarm: motion detected at %s (difference %.4f)", ts.Format("15:04:05"), diff)
 			// encode now: the frames are only valid until this handler returns
-			animation, err := gif.Encode(append(history, frame), config.GIFFrameDelay)
+			animation, err := gif.Encode(lastFrames(history, frame, mon.GIFFrames()), config.GIFFrameDelay)
 			go func() {
 				if err != nil {
 					fmt.Fprintln(os.Stderr, "gif:", err)
@@ -173,4 +175,18 @@ func main() {
 		fmt.Fprintln(os.Stderr, "restart:", err)
 		os.Exit(1)
 	}
+}
+
+// lastFrames returns the last n frames of history followed by frame, so n
+// counts frame itself. It returns fewer if the history is shorter.
+func lastFrames(history []image.Image, frame image.Image, n int) []image.Image {
+	if n < 1 {
+		n = 1
+	}
+	if len(history) > n-1 {
+		history = history[len(history)-(n-1):]
+	}
+	out := make([]image.Image, 0, len(history)+1)
+	out = append(out, history...)
+	return append(out, frame)
 }

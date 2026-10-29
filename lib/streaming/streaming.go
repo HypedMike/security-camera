@@ -30,10 +30,12 @@ type Stream struct {
 	mu       sync.RWMutex
 	handlers []Handler
 
-	// ring buffer of the last opts.History frames, owned by Run
-	ring  []*image.RGBA
-	next  int
-	count int
+	// ring buffer of the last History frames; ringMu guards it so the size
+	// can change while the stream runs
+	ringMu sync.Mutex
+	ring   []*image.RGBA
+	next   int
+	count  int
 }
 
 func New(track *mediadevices.VideoTrack, opts Options) *Stream {
@@ -76,6 +78,39 @@ func (s *Stream) Run(ctx context.Context) error {
 		release()
 	}
 	return ctx.Err()
+}
+
+// History returns how many past frames are kept.
+func (s *Stream) History() int {
+	s.ringMu.Lock()
+	defer s.ringMu.Unlock()
+	return len(s.ring)
+}
+
+// SetHistory changes how many past frames are kept. When shrinking, the
+// newest frames are kept.
+func (s *Stream) SetHistory(n int) {
+	if n < 0 {
+		n = 0
+	}
+	s.ringMu.Lock()
+	defer s.ringMu.Unlock()
+	if n == len(s.ring) {
+		return
+	}
+	old := s.history()
+	if len(old) > n {
+		old = old[len(old)-n:]
+	}
+	ring := make([]*image.RGBA, n)
+	for i, img := range old {
+		ring[i] = img.(*image.RGBA)
+	}
+	s.ring, s.count = ring, len(old)
+	s.next = 0
+	if n > 0 {
+		s.next = len(old) % n
+	}
 }
 
 // history returns the stored frames, oldest first.
