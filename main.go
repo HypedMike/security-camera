@@ -26,12 +26,6 @@ import (
 	"security_camera/lib/telegram"
 )
 
-// envBool reports whether the variable is set to a true value (1, true, ...).
-func envBool(key string) bool {
-	v, _ := strconv.ParseBool(os.Getenv(key))
-	return v
-}
-
 // pickCamera returns the id of the camera to use. The choice is kept in
 // CAMERA_ID; it is asked again only when refetch is set, nothing is saved yet
 // or the saved camera is gone. With a single camera there is nothing to ask.
@@ -88,8 +82,8 @@ func main() {
 		panic(fmt.Errorf("%w (set them in .env)", err))
 	}
 
-	printDiffs := envBool("PRINT_DIFFERENCES")
-	if envBool("PRINT_TELEGRAM_MESSAGES") {
+	printDiffs := env.Bool("PRINT_DIFFERENCES")
+	if env.Bool("PRINT_TELEGRAM_MESSAGES") {
 		bot.AddListener(func(m telegram.Message) {
 			fmt.Printf("Telegram message from %s: %s\n", m.From, m.Text)
 		})
