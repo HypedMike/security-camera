@@ -39,7 +39,7 @@ type commandState struct {
 //	/detector [name]    shows or changes the motion detector
 //	/stack [n]   shows or changes how many frames are kept (default 300)
 //	/detect [t]  shows or changes how many of the latest frames the difference detector uses (default 30)
-//	/gif [m]     shows or changes how many of the latest frames an alarm GIF has (default 150)
+//	/gif [m]     shows or changes how many of the latest frames an alarm GIF covers (default 150, one in 3 is kept)
 //	/update  pulls, rebuilds and restarts the program
 //
 // cancel stops the stream, which is how /update makes main restart.
@@ -146,7 +146,7 @@ func initTelegramCommands(ctx context.Context, cancel context.CancelFunc, bot *t
 		},
 
 		"gif": func(m telegram.Message) {
-			setting(m, "gif", "frames in the alarm GIF", mon.GIFFrames, func(n int) string {
+			setting(m, "gif", "frames covered by the alarm GIF", mon.GIFFrames, func(n int) string {
 				if n < 2 {
 					return "Must be at least 2."
 				}

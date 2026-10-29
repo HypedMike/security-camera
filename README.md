@@ -11,7 +11,7 @@ It watches the camera, and when it sees motion above a threshold it sends a shor
 - **Motion detection**, with two interchangeable detectors (`DETECTOR` setting or `/detector` command):
   - `background` (default): learns what the empty scene looks like and alarms when a moving blob covers at least `BACKGROUND_THRESHOLD` of the frame. Picks up small or distant movement and ignores lights switching on.
   - `difference`: compares the last frames pixel by pixel and alarms when the average difference reaches `DIFFERENCE_THRESHOLD`.
-- **Telegram alerts**: the alarm is sent as an animated GIF with a timestamp, the detector and its score. Alarms are rate-limited (30 s cooldown).
+- **Telegram alerts**: the alarm is sent as a small animated GIF (about 5 s, 320x240) with a timestamp, the detector and its score. Alarms are rate-limited (30 s cooldown).
 - **Telegram commands**, accepted only from the configured chat:
 
   | Command   | What it does                                          |
@@ -76,7 +76,7 @@ Settings live in `.env` (see [`.env.example`](.env.example)).
 
 Flag: `-fetch-camera` lists the cameras again and lets you choose a different one.
 
-Fixed settings (cooldown, GIF speed, resolution 640x480, history length) are in [`lib/config/config.go`](lib/config/config.go).
+Fixed settings (cooldown, GIF speed, size and frame step, resolution 640x480, history length) are in [`lib/config/config.go`](lib/config/config.go).
 
 ## Detectors and thresholds
 

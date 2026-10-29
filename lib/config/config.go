@@ -7,7 +7,20 @@ import "time"
 const AlarmCooldown = 30 * time.Second
 
 // GIFFrameDelay is the pause between GIF frames, in hundredths of a second.
+// With GIFFrameStep 3 on a 30 fps camera the GIF plays at real speed.
 const GIFFrameDelay = 10
+
+// GIFFrameStep keeps one frame out of every GIFFrameStep of the last GIFFrames
+// in the alarm GIF: 150 frames become 50, about 5 seconds long.
+const GIFFrameStep = 3
+
+// GIFWidth is the largest width of the alarm GIF frames: 640x480 frames are
+// shrunk to 320x240, a quarter of the pixels.
+const GIFWidth = 320
+
+// GIFDither smooths the GIF colours, but the noise it adds makes the file
+// noticeably bigger (up to about 3 times).
+const GIFDither = false
 
 // CameraChoiceTimeout is how long the camera prompt waits before using the first camera.
 const CameraChoiceTimeout = 5 * time.Second
@@ -18,7 +31,8 @@ const EnvFile = ".env"
 // StreamHistory is how many past frames the stack keeps by default (n).
 const StreamHistory = 300
 
-// GIFFrames is how many of the latest frames an alarm GIF contains by default (m).
+// GIFFrames is how many of the latest frames an alarm GIF covers by default
+// (m), before GIFFrameStep drops some of them.
 const GIFFrames = 150
 
 // DefaultDetector is the motion detector used when DETECTOR is not set.
