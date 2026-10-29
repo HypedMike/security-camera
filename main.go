@@ -11,74 +11,28 @@ import (
 	"os"
 	"os/signal"
 	"strconv"
-	"sync/atomic"
 	"time"
 
+	"security_camera/lib/config"
 	"security_camera/lib/detection"
 	"security_camera/lib/env"
 	"security_camera/lib/gif"
 	"security_camera/lib/livegraph"
+	"security_camera/lib/monitor"
 	"security_camera/lib/my_video"
 	"security_camera/lib/streaming"
 	"security_camera/lib/telegram"
+	"security_camera/lib/update"
 )
-
-// alarmCooldown is the minimum time between two Telegram notifications.
-const alarmCooldown = 30 * time.Second
-
-// gifFrameDelay is the pause between GIF frames, in hundredths of a second.
-const gifFrameDelay = 10
-
-// envBool reports whether the variable is set to a true value (1, true, ...).
-func envBool(key string) bool {
-	v, _ := strconv.ParseBool(os.Getenv(key))
-	return v
-}
-
-// cameraChoiceTimeout is how long the camera prompt waits before using the first camera.
-const cameraChoiceTimeout = 5 * time.Second
-
-// pickCamera returns the id of the camera to use. The choice is kept in
-// CAMERA_ID; it is asked again only when refetch is set, nothing is saved yet
-// or the saved camera is gone. With a single camera there is nothing to ask.
-func pickCamera(refetch bool) (string, error) {
-	devs := my_video.Devices()
-	switch len(devs) {
-	case 0:
-		// let Open try the default camera and report the driver's own error
-		fmt.Fprintln(os.Stderr, "no camera listed, trying the default one")
-		return "", nil
-	case 1:
-		return devs[0].ID, nil
-	}
-	if saved := os.Getenv("CAMERA_ID"); saved != "" && !refetch {
-		for _, d := range devs {
-			if d.ID == saved {
-				return saved, nil
-			}
-		}
-		fmt.Println("saved camera not found, choosing again")
-	}
-	labels := make([]string, len(devs))
-	for i, d := range devs {
-		labels[i] = d.Label
-	}
-	chosen := devs[env.Choose(os.Stdin, os.Stdout, "Several cameras found:", labels, cameraChoiceTimeout)]
-	if err := env.Save(".env", "CAMERA_ID", chosen.ID); err != nil {
-		return "", err
-	}
-	os.Setenv("CAMERA_ID", chosen.ID)
-	return chosen.ID, nil
-}
 
 func main() {
 	fetchCamera := flag.Bool("fetch-camera", false, "list the cameras again and choose one, even if one is already saved")
 	flag.Parse()
 
-	if err := env.Load(".env"); err != nil {
+	if err := env.Load(config.EnvFile); err != nil {
 		panic(err)
 	}
-	err := env.Ensure(".env", os.Stdin, os.Stdout,
+	err := env.Ensure(config.EnvFile, os.Stdin, os.Stdout,
 		env.Var{Key: "TELEGRAM_BOT_TOKEN", Prompt: "Telegram bot token from @BotFather"},
 		env.Var{Key: "TELEGRAM_CHAT_ID", Prompt: "Telegram chat id"},
 		env.Var{Key: "ALARM_THRESHOLD", Prompt: "Frame difference at or above which an alarm is sent, e.g. 0.05", Validate: func(s string) error {
@@ -94,54 +48,62 @@ func main() {
 		panic(fmt.Errorf("%w (set them in .env)", err))
 	}
 
-	printDiffs := envBool("PRINT_DIFFERENCES")
-	if envBool("PRINT_TELEGRAM_MESSAGES") {
+	printDiffs := env.Bool("PRINT_DIFFERENCES")
+	if env.Bool("PRINT_TELEGRAM_MESSAGES") {
 		bot.AddListener(func(m telegram.Message) {
 			fmt.Printf("Telegram message from %s: %s\n", m.From, m.Text)
 		})
 	}
 
-	// /snap asks the stream handler to send the next frame
-	var snapRequested atomic.Bool
-	bot.AddListener(func(m telegram.Message) {
-		if m.Command() == "snap" {
-			snapRequested.Store(true)
-		}
-	})
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
+	defer stop()
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
 
 	threshold, err := strconv.ParseFloat(os.Getenv("ALARM_THRESHOLD"), 64)
 	if err != nil {
 		panic(fmt.Errorf("ALARM_THRESHOLD: %w", err))
 	}
-	var lastAlarm atomic.Int64 // unix nanos
 
 	cfg := my_video.DefaultConfig
-	if cfg.DeviceID, err = pickCamera(*fetchCamera); err != nil {
+	if cfg.DeviceID, err = my_video.Pick(*fetchCamera); err != nil {
 		panic(err)
 	}
+	mon := monitor.New(cfg.DeviceID, threshold, config.AlarmCooldown)
 	video, err := my_video.Open(cfg)
 	if err != nil {
 		panic(err)
 	}
 	defer video.Close()
 
-	graph := livegraph.New()
-	go func() {
-		if err := graph.ListenAndServe(":8080"); err != nil {
-			panic(err)
-		}
-	}()
-	fmt.Println("live graph at http://localhost:8080")
+	// the live graph is only served when LIVE_STREAM_GRAPH is set
+	var graph *livegraph.Graph
+	if env.Bool("LIVE_STREAM_GRAPH") {
+		graph = livegraph.New()
+		go func() {
+			if err := graph.ListenAndServe(config.GraphAddr); err != nil {
+				panic(err)
+			}
+		}()
+		fmt.Println("live graph at http://localhost" + config.GraphAddr)
+	}
 
-	stream := streaming.New(video.Track(), streaming.Options{History: 10})
+	stream := streaming.New(video.Track(), streaming.Options{History: config.StreamHistory})
+
+	var cmds commandState
+	initTelegramCommands(ctx, cancel, bot, mon, &cmds)
+
+	stream.AddHandler(func(_ image.Image, _ []image.Image, ts time.Time) {
+		mon.Frame(ts)
+	})
 
 	stream.AddHandler(func(frame image.Image, _ []image.Image, ts time.Time) {
-		if !snapRequested.CompareAndSwap(true, false) {
+		if !cmds.snapRequested.CompareAndSwap(true, false) {
 			return
 		}
 		// encode now: the frame is only valid until this handler returns
 		var buf bytes.Buffer
-		err := jpeg.Encode(&buf, frame, &jpeg.Options{Quality: 85})
+		err := jpeg.Encode(&buf, frame, &jpeg.Options{Quality: config.SnapJPEGQuality})
 		go func() {
 			if err == nil {
 				err = bot.SendPhoto(buf.Bytes(), "Snapshot at "+ts.Format("15:04:05"))
@@ -161,12 +123,14 @@ func main() {
 			fmt.Fprintln(os.Stderr, "detection:", err)
 			return
 		}
-		graph.Push(diff)
-		if diff >= threshold && ts.UnixNano()-lastAlarm.Load() > int64(alarmCooldown) {
-			lastAlarm.Store(ts.UnixNano())
+		if graph != nil {
+			graph.Push(diff)
+		}
+		if diff >= threshold && ts.Sub(mon.LastAlarm()) > config.AlarmCooldown {
+			mon.Alarm(ts)
 			caption := fmt.Sprintf("Alarm: motion detected at %s (difference %.4f)", ts.Format("15:04:05"), diff)
 			// encode now: the frames are only valid until this handler returns
-			animation, err := gif.Encode(append(history, frame), gifFrameDelay)
+			animation, err := gif.Encode(append(history, frame), config.GIFFrameDelay)
 			go func() {
 				if err != nil {
 					fmt.Fprintln(os.Stderr, "gif:", err)
@@ -184,9 +148,6 @@ func main() {
 		}
 	})
 
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
-	defer stop()
-
 	go func() {
 		if err := bot.Run(ctx); err != nil && !errors.Is(err, context.Canceled) {
 			fmt.Fprintln(os.Stderr, err)
@@ -203,5 +164,13 @@ func main() {
 
 	if err := stream.Run(ctx); err != nil && !errors.Is(err, context.Canceled) {
 		panic(err)
+	}
+
+	if cmds.restart.Load() {
+		// release the camera so the new process can open it
+		video.Close()
+		err := update.Restart()
+		fmt.Fprintln(os.Stderr, "restart:", err)
+		os.Exit(1)
 	}
 }

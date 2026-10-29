@@ -10,6 +10,12 @@ import (
 	"time"
 )
 
+// Bool reports whether the variable is set to a true value (1, true, ...).
+func Bool(key string) bool {
+	v, _ := strconv.ParseBool(os.Getenv(key))
+	return v
+}
+
 // Load reads KEY=VALUE lines from path into the process environment.
 // Blank lines and lines starting with # are ignored, and variables that are
 // already set to a non-empty value are not overridden. A missing file is not an error.
