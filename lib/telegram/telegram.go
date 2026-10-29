@@ -24,6 +24,8 @@ type Bot struct {
 	chatID string
 	api    string
 	client *http.Client
+	// uploads take longer than the other requests, the HD GIFs are big
+	uploadClient *http.Client
 
 	// long-polling needs a client whose timeout exceeds pollTimeout
 	pollClient  *http.Client
@@ -72,6 +74,8 @@ func New(token, chatID string) (*Bot, error) {
 		chatID: chatID,
 		api:    defaultAPI,
 		client: &http.Client{Timeout: 10 * time.Second},
+
+		uploadClient: &http.Client{Timeout: 2 * time.Minute},
 
 		pollClient:  &http.Client{Timeout: 40 * time.Second},
 		pollTimeout: 30 * time.Second,
@@ -127,7 +131,7 @@ func (b *Bot) upload(method, field, filename string, data []byte, caption string
 		return err
 	}
 
-	resp, err := b.client.Post(fmt.Sprintf("%s/bot%s/%s", b.api, b.token, method), w.FormDataContentType(), &body)
+	resp, err := b.uploadClient.Post(fmt.Sprintf("%s/bot%s/%s", b.api, b.token, method), w.FormDataContentType(), &body)
 	if err != nil {
 		return errors.New("telegram: request failed")
 	}

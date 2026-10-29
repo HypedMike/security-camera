@@ -11,21 +11,44 @@ const AlarmCooldown = 30 * time.Second
 // detection the thing that moved is often not fully in the frame yet.
 const AlarmDelay = 3 * time.Second
 
-// GIFFrameDelay is the pause between GIF frames, in hundredths of a second.
-// With GIFFrameStep 3 on a 30 fps camera the GIF plays at real speed.
-const GIFFrameDelay = 10
+// Every alarm makes two GIFs from the same frames. The low quality one is
+// sent with the alarm and is tiny, so it arrives fast even on a poor
+// connection; the HD one is kept on disk and sent by /hd <code>.
+//
+// The delay is in hundredths of a second between frames. On a 30 fps camera
+// a step of 3 with a delay of 10 plays at real speed, and so do 6 and 20.
 
-// GIFFrameStep keeps one frame out of every GIFFrameStep of the last GIFFrames
-// in the alarm GIF: 150 frames become 50, about 5 seconds long.
-const GIFFrameStep = 3
+// HDGIFFrameStep keeps one frame out of every HDGIFFrameStep of the last
+// GIFFrames: 150 frames become 75, about 5 seconds long.
+const HDGIFFrameStep = 2
 
-// GIFWidth is the largest width of the alarm GIF frames: 640x480 frames are
-// shrunk to 320x240, a quarter of the pixels.
-const GIFWidth = 320
+// HDGIFFrameDelay is the pause between HD GIF frames.
+const HDGIFFrameDelay = 7
 
-// GIFDither smooths the GIF colours, but the noise it adds makes the file
-// noticeably bigger (up to about 3 times).
-const GIFDither = false
+// HDGIFWidth is the largest width of the HD GIF frames: the full 640x480.
+const HDGIFWidth = 640
+
+// HDGIFDither smooths the HD GIF colours, at the price of a file up to about
+// 3 times bigger.
+const HDGIFDither = true
+
+// LowGIFFrameStep is how many HD GIF frames are skipped to make the low
+// quality GIF, which is therefore one frame in HDGIFFrameStep*LowGIFFrameStep
+// of the camera: 75 frames become 25, still about 5 seconds long.
+const LowGIFFrameStep = 3
+
+// LowGIFFrameDelay is the pause between low quality GIF frames.
+const LowGIFFrameDelay = 20
+
+// LowGIFWidth is the largest width of the low quality GIF frames: 160x120.
+const LowGIFWidth = 160
+
+// GIFDir is the directory the HD GIFs are saved in.
+const GIFDir = "gifs"
+
+// GIFStorageLimit is the largest total size in bytes of the saved HD GIFs
+// (1 GB). Past it the oldest GIFs are deleted.
+const GIFStorageLimit = 1 << 30
 
 // CameraChoiceTimeout is how long the camera prompt waits before using the first camera.
 const CameraChoiceTimeout = 5 * time.Second
