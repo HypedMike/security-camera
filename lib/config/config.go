@@ -6,6 +6,11 @@ import "time"
 // AlarmCooldown is the minimum time between two Telegram notifications.
 const AlarmCooldown = 30 * time.Second
 
+// AlarmDelay is how long the program waits after it detects motion before it
+// sends the alarm, so the GIF also shows what happens next: at the first
+// detection the thing that moved is often not fully in the frame yet.
+const AlarmDelay = 3 * time.Second
+
 // GIFFrameDelay is the pause between GIF frames, in hundredths of a second.
 // With GIFFrameStep 3 on a 30 fps camera the GIF plays at real speed.
 const GIFFrameDelay = 10

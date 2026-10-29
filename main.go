@@ -134,10 +134,13 @@ func main() {
 	// detector is only used by this handler; /detector switches it through
 	// the monitor, and the newly chosen one starts learning from scratch
 	var detector detection.Detector
+	// alarm is the detection waiting for AlarmDelay to pass, nil if none
+	var alarm *pendingAlarm
 	stream.AddHandler(func(frame image.Image, history []image.Image, ts time.Time) {
 		if name := mon.Detector(); detector == nil || detector.Name() != name {
 			detector = detectors[name]
 			detector.Reset()
+			alarm = nil
 		}
 		score, err := detector.Score(frame, history)
 		if err != nil {
@@ -147,24 +150,33 @@ func main() {
 		if graph != nil {
 			graph.Push(score)
 		}
-		if !mon.Paused() && score >= mon.ThresholdOf(detector.Name()) && ts.Sub(mon.LastAlarm()) > config.AlarmCooldown {
+		if !mon.Paused() && alarm == nil && score >= mon.ThresholdOf(detector.Name()) && ts.Sub(mon.LastAlarm()) > config.AlarmCooldown {
 			mon.Alarm(ts)
-			caption := fmt.Sprintf("Alarm: motion detected at %s (%s score %.4f)", ts.Format("15:04:05"), detector.Name(), score)
-			// shrink now: the frames are only valid until this handler returns,
-			// and Shrink copies them
-			frames := gif.Shrink(everyNth(lastFrames(history, frame, mon.GIFFrames()), config.GIFFrameStep), config.GIFWidth)
-			go func() {
-				animation, err := gif.Encode(frames, config.GIFFrameDelay, config.GIFDither)
-				if err != nil {
-					fmt.Fprintln(os.Stderr, "gif:", err)
-					err = bot.SendMessage(caption)
-				} else {
-					err = bot.SendAnimation(animation, caption)
-				}
-				if err != nil {
-					fmt.Fprintln(os.Stderr, err)
-				}
-			}()
+			// the motion has only just started: wait AlarmDelay and send the
+			// GIF then, so it also covers what comes after the detection
+			alarm = &pendingAlarm{at: ts, due: ts.Add(config.AlarmDelay), detector: detector.Name(), score: score}
+		}
+		if alarm != nil && !ts.Before(alarm.due) {
+			a := alarm
+			alarm = nil
+			if !mon.Paused() {
+				caption := fmt.Sprintf("Alarm: motion detected at %s (%s score %.4f)", a.at.Format("15:04:05"), a.detector, a.score)
+				// shrink now: the frames are only valid until this handler returns,
+				// and Shrink copies them
+				frames := gif.Shrink(everyNth(lastFrames(history, frame, mon.GIFFrames()), config.GIFFrameStep), config.GIFWidth)
+				go func() {
+					animation, err := gif.Encode(frames, config.GIFFrameDelay, config.GIFDither)
+					if err != nil {
+						fmt.Fprintln(os.Stderr, "gif:", err)
+						err = bot.SendMessage(caption)
+					} else {
+						err = bot.SendAnimation(animation, caption)
+					}
+					if err != nil {
+						fmt.Fprintln(os.Stderr, err)
+					}
+				}()
+			}
 		}
 		if printDiffs {
 			fmt.Printf("%s %s score: %.4f\n", ts.Format("15:04:05.000"), detector.Name(), score)
@@ -196,6 +208,13 @@ func main() {
 		fmt.Fprintln(os.Stderr, "restart:", err)
 		os.Exit(1)
 	}
+}
+
+// pendingAlarm is a detection whose alarm is sent once due has passed.
+type pendingAlarm struct {
+	at, due  time.Time
+	detector string
+	score    float64
 }
 
 // envThreshold returns the alarm threshold in the variable key, or def if it
