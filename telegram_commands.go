@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"maps"
 	"math"
@@ -13,6 +14,7 @@ import (
 
 	"security_camera/lib/config"
 	"security_camera/lib/detection"
+	"security_camera/lib/gifstore"
 	"security_camera/lib/monitor"
 	"security_camera/lib/streaming"
 	"security_camera/lib/sysinfo"
@@ -40,10 +42,11 @@ type commandState struct {
 //	/stack [n]   shows or changes how many frames are kept (default 300)
 //	/detect [t]  shows or changes how many of the latest frames the difference detector uses (default 30)
 //	/gif [m]     shows or changes how many of the latest frames an alarm GIF covers (default 150, one in 3 is kept)
+//	/hd <code>   sends the HD version of the alarm GIF with that code
 //	/update  pulls, rebuilds and restarts the program
 //
 // cancel stops the stream, which is how /update makes main restart.
-func initTelegramCommands(ctx context.Context, cancel context.CancelFunc, bot *telegram.Bot, mon *monitor.Monitor, stream *streaming.Stream, detectors map[string]detection.Detector, state *commandState) {
+func initTelegramCommands(ctx context.Context, cancel context.CancelFunc, bot *telegram.Bot, mon *monitor.Monitor, stream *streaming.Stream, detectors map[string]detection.Detector, gifs *gifstore.Store, state *commandState) {
 	reply := func(command, text string) {
 		if err := bot.SendMessage(text); err != nil {
 			fmt.Fprintf(os.Stderr, "%s: %v\n", command, err)
@@ -156,6 +159,33 @@ func initTelegramCommands(ctx context.Context, cancel context.CancelFunc, bot *t
 				mon.SetGIFFrames(n)
 				return ""
 			})
+		},
+
+		"hd": func(m telegram.Message) {
+			args := m.Args()
+			if len(args) == 0 {
+				go reply("hd", "Usage: /hd <code>, the code is under the alarm GIF.")
+				return
+			}
+			if gifs == nil {
+				go reply("hd", "HD GIFs are not being saved.")
+				return
+			}
+			// reading and uploading the GIF takes a while, don't hold up the other messages
+			go func() {
+				data, err := gifs.Get(args[0])
+				if errors.Is(err, gifstore.ErrNotFound) {
+					reply("hd", fmt.Sprintf("No HD GIF with code %q. Old ones are deleted to keep the storage under the limit.", args[0]))
+					return
+				}
+				if err == nil {
+					err = bot.SendAnimation(data, "HD version of "+strings.ToLower(args[0]))
+				}
+				if err != nil {
+					fmt.Fprintf(os.Stderr, "hd: %v\n", err)
+					reply("hd", "Could not send the HD GIF.")
+				}
+			}()
 		},
 
 		"update": func(telegram.Message) {

@@ -22,6 +22,7 @@ import (
 	"security_camera/lib/detection"
 	"security_camera/lib/env"
 	"security_camera/lib/gif"
+	"security_camera/lib/gifstore"
 	"security_camera/lib/livegraph"
 	"security_camera/lib/monitor"
 	"security_camera/lib/my_video"
@@ -107,8 +108,15 @@ func main() {
 
 	stream := streaming.New(video.Track(), streaming.Options{History: config.StreamHistory})
 
+	// without the store the alarms still work, they just have no HD version
+	gifs, err := gifstore.New(config.GIFDir, config.GIFStorageLimit)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "gifs: HD GIFs will not be saved:", err)
+		gifs = nil
+	}
+
 	var cmds commandState
-	initTelegramCommands(ctx, cancel, bot, mon, stream, detectors, &cmds)
+	initTelegramCommands(ctx, cancel, bot, mon, stream, detectors, gifs, &cmds)
 
 	stream.AddHandler(func(_ image.Image, _ []image.Image, ts time.Time) {
 		mon.Frame(ts)
@@ -163,19 +171,8 @@ func main() {
 				caption := fmt.Sprintf("Alarm: motion detected at %s (%s score %.4f)", a.at.Format("15:04:05"), a.detector, a.score)
 				// shrink now: the frames are only valid until this handler returns,
 				// and Shrink copies them
-				frames := gif.Shrink(everyNth(lastFrames(history, frame, mon.GIFFrames()), config.GIFFrameStep), config.GIFWidth)
-				go func() {
-					animation, err := gif.Encode(frames, config.GIFFrameDelay, config.GIFDither)
-					if err != nil {
-						fmt.Fprintln(os.Stderr, "gif:", err)
-						err = bot.SendMessage(caption)
-					} else {
-						err = bot.SendAnimation(animation, caption)
-					}
-					if err != nil {
-						fmt.Fprintln(os.Stderr, err)
-					}
-				}()
+				hdFrames := gif.Shrink(everyNth(lastFrames(history, frame, mon.GIFFrames()), config.HDGIFFrameStep), config.HDGIFWidth)
+				go sendAlarm(bot, gifs, hdFrames, caption)
 			}
 		}
 		if printDiffs {
@@ -208,6 +205,47 @@ func main() {
 		fmt.Fprintln(os.Stderr, "restart:", err)
 		os.Exit(1)
 	}
+}
+
+// sendAlarm sends the low quality GIF of the alarm with a code under it, and
+// saves the HD one in gifs under that code for /hd. Without a store, or if
+// the HD GIF can't be made or saved, the code is left out. hdFrames are the
+// frames of the HD GIF.
+func sendAlarm(bot *telegram.Bot, gifs *gifstore.Store, hdFrames []image.Image, caption string) {
+	lowFrames := gif.Shrink(everyNth(hdFrames, config.LowGIFFrameStep), config.LowGIFWidth)
+	low, err := gif.Encode(lowFrames, config.LowGIFFrameDelay, false)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "gif:", err)
+		if err = bot.SendMessage(caption); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+		}
+		return
+	}
+
+	// the HD GIF is saved before the alarm goes out, so the code works at once
+	if gifs != nil {
+		if code, err := saveHD(gifs, hdFrames); err != nil {
+			fmt.Fprintln(os.Stderr, "hd gif:", err)
+		} else {
+			caption += fmt.Sprintf("\nHD version: /hd %s", code)
+		}
+	}
+	if err := bot.SendAnimation(low, caption); err != nil {
+		fmt.Fprintln(os.Stderr, err)
+	}
+}
+
+// saveHD encodes frames as the HD GIF and saves it, returning its code.
+func saveHD(gifs *gifstore.Store, frames []image.Image) (string, error) {
+	hd, err := gif.Encode(frames, config.HDGIFFrameDelay, config.HDGIFDither)
+	if err != nil {
+		return "", err
+	}
+	code, err := gifstore.NewCode()
+	if err != nil {
+		return "", err
+	}
+	return code, gifs.Save(code, hd)
 }
 
 // pendingAlarm is a detection whose alarm is sent once due has passed.
