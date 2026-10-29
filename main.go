@@ -11,7 +11,6 @@ import (
 	"os"
 	"os/signal"
 	"strconv"
-	"sync/atomic"
 	"time"
 
 	"security_camera/lib/config"
@@ -22,7 +21,6 @@ import (
 	"security_camera/lib/monitor"
 	"security_camera/lib/my_video"
 	"security_camera/lib/streaming"
-	"security_camera/lib/sysinfo"
 	"security_camera/lib/telegram"
 	"security_camera/lib/update"
 )
@@ -62,14 +60,6 @@ func main() {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
-	// /snap asks the stream handler to send the next frame
-	var snapRequested atomic.Bool
-	bot.AddListener(func(m telegram.Message) {
-		if m.Command() == "snap" {
-			snapRequested.Store(true)
-		}
-	})
-
 	threshold, err := strconv.ParseFloat(os.Getenv("ALARM_THRESHOLD"), 64)
 	if err != nil {
 		panic(fmt.Errorf("ALARM_THRESHOLD: %w", err))
@@ -100,53 +90,15 @@ func main() {
 
 	stream := streaming.New(video.Track(), streaming.Options{History: config.StreamHistory})
 
-	// /info reports the state of the machine and of the program
-	bot.AddListener(func(m telegram.Message) {
-		if m.Command() != "info" {
-			return
-		}
-		// the report takes a moment to measure, don't hold up the other messages
-		go func() {
-			report := sysinfo.Report(".") + "\n\n" + mon.Report()
-			if err := bot.SendMessage(report); err != nil {
-				fmt.Fprintln(os.Stderr, "info:", err)
-			}
-		}()
-	})
-
-	// /update pulls and rebuilds, then stops the stream so main can restart
-	var updating atomic.Bool
-	var restart atomic.Bool
-	bot.AddListener(func(m telegram.Message) {
-		if m.Command() != "update" || !updating.CompareAndSwap(false, true) {
-			return
-		}
-		// the build takes a while, don't hold up the other messages
-		go func() {
-			reply := func(text string) {
-				if err := bot.SendMessage(text); err != nil {
-					fmt.Fprintln(os.Stderr, "update:", err)
-				}
-			}
-			reply("Updating...")
-			out, err := update.Build(ctx, config.UpdateScript, config.UpdateTimeout)
-			if err != nil {
-				updating.Store(false)
-				reply("Update failed, still running the old version:\n" + update.Tail(out+"\n"+err.Error(), 3000))
-				return
-			}
-			reply(update.Tail(out, 3000) + "\nRestarting...")
-			restart.Store(true)
-			cancel()
-		}()
-	})
+	var cmds commandState
+	initTelegramCommands(ctx, cancel, bot, mon, &cmds)
 
 	stream.AddHandler(func(_ image.Image, _ []image.Image, ts time.Time) {
 		mon.Frame(ts)
 	})
 
 	stream.AddHandler(func(frame image.Image, _ []image.Image, ts time.Time) {
-		if !snapRequested.CompareAndSwap(true, false) {
+		if !cmds.snapRequested.CompareAndSwap(true, false) {
 			return
 		}
 		// encode now: the frame is only valid until this handler returns
@@ -214,7 +166,7 @@ func main() {
 		panic(err)
 	}
 
-	if restart.Load() {
+	if cmds.restart.Load() {
 		// release the camera so the new process can open it
 		video.Close()
 		err := update.Restart()
