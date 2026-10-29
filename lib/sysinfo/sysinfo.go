@@ -14,9 +14,6 @@ import (
 	"time"
 )
 
-// sampleWindow is how long CPU usage is measured over.
-const sampleWindow = 300 * time.Millisecond
-
 var startTime = time.Now()
 
 // cpuTimes returns the busy and total jiffies of the whole machine from the
