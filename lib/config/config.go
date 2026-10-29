@@ -11,3 +11,15 @@ const GIFFrameDelay = 10
 
 // CameraChoiceTimeout is how long the camera prompt waits before using the first camera.
 const CameraChoiceTimeout = 5 * time.Second
+
+// EnvFile is the file the settings are loaded from and saved to.
+const EnvFile = ".env"
+
+// StreamHistory is how many past frames are passed to the stream handlers.
+const StreamHistory = 10
+
+// GraphAddr is the address the live graph is served on.
+const GraphAddr = ":8080"
+
+// SnapJPEGQuality is the JPEG quality of the /snap photos.
+const SnapJPEGQuality = 85

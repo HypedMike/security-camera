@@ -52,7 +52,7 @@ func pickCamera(refetch bool) (string, error) {
 		labels[i] = d.Label
 	}
 	chosen := devs[env.Choose(os.Stdin, os.Stdout, "Several cameras found:", labels, config.CameraChoiceTimeout)]
-	if err := env.Save(".env", "CAMERA_ID", chosen.ID); err != nil {
+	if err := env.Save(config.EnvFile, "CAMERA_ID", chosen.ID); err != nil {
 		return "", err
 	}
 	os.Setenv("CAMERA_ID", chosen.ID)
@@ -63,10 +63,10 @@ func main() {
 	fetchCamera := flag.Bool("fetch-camera", false, "list the cameras again and choose one, even if one is already saved")
 	flag.Parse()
 
-	if err := env.Load(".env"); err != nil {
+	if err := env.Load(config.EnvFile); err != nil {
 		panic(err)
 	}
-	err := env.Ensure(".env", os.Stdin, os.Stdout,
+	err := env.Ensure(config.EnvFile, os.Stdin, os.Stdout,
 		env.Var{Key: "TELEGRAM_BOT_TOKEN", Prompt: "Telegram bot token from @BotFather"},
 		env.Var{Key: "TELEGRAM_CHAT_ID", Prompt: "Telegram chat id"},
 		env.Var{Key: "ALARM_THRESHOLD", Prompt: "Frame difference at or above which an alarm is sent, e.g. 0.05", Validate: func(s string) error {
@@ -115,13 +115,13 @@ func main() {
 
 	graph := livegraph.New()
 	go func() {
-		if err := graph.ListenAndServe(":8080"); err != nil {
+		if err := graph.ListenAndServe(config.GraphAddr); err != nil {
 			panic(err)
 		}
 	}()
-	fmt.Println("live graph at http://localhost:8080")
+	fmt.Println("live graph at http://localhost" + config.GraphAddr)
 
-	stream := streaming.New(video.Track(), streaming.Options{History: 10})
+	stream := streaming.New(video.Track(), streaming.Options{History: config.StreamHistory})
 
 	// /info reports the state of the machine and of the program
 	bot.AddListener(func(m telegram.Message) {
@@ -147,7 +147,7 @@ func main() {
 		}
 		// encode now: the frame is only valid until this handler returns
 		var buf bytes.Buffer
-		err := jpeg.Encode(&buf, frame, &jpeg.Options{Quality: 85})
+		err := jpeg.Encode(&buf, frame, &jpeg.Options{Quality: config.SnapJPEGQuality})
 		go func() {
 			if err == nil {
 				err = bot.SendPhoto(buf.Bytes(), "Snapshot at "+ts.Format("15:04:05"))
