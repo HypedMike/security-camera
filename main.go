@@ -22,7 +22,6 @@ import (
 	"security_camera/lib/detection"
 	"security_camera/lib/env"
 	"security_camera/lib/gif"
-	"security_camera/lib/gifstore"
 	"security_camera/lib/livegraph"
 	"security_camera/lib/monitor"
 	"security_camera/lib/my_video"
@@ -109,7 +108,7 @@ func main() {
 	stream := streaming.New(video.Track(), streaming.Options{History: config.StreamHistory})
 
 	// without the store the alarms still work, they just have no HD version
-	gifs, err := gifstore.New(config.GIFDir, config.GIFStorageLimit)
+	gifs, err := gif.NewStore(config.GIFDir, config.GIFStorageLimit)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "gifs: HD GIFs will not be saved:", err)
 		gifs = nil
@@ -211,7 +210,7 @@ func main() {
 // saves the HD one in gifs under that code for /hd. Without a store, or if
 // the HD GIF can't be made or saved, the code is left out. hdFrames are the
 // frames of the HD GIF.
-func sendAlarm(bot *telegram.Bot, gifs *gifstore.Store, hdFrames []image.Image, caption string) {
+func sendAlarm(bot *telegram.Bot, gifs *gif.Store, hdFrames []image.Image, caption string) {
 	lowFrames := gif.Shrink(everyNth(hdFrames, config.LowGIFFrameStep), config.LowGIFWidth)
 	low, err := gif.Encode(lowFrames, config.LowGIFFrameDelay, false)
 	if err != nil {
@@ -236,12 +235,12 @@ func sendAlarm(bot *telegram.Bot, gifs *gifstore.Store, hdFrames []image.Image, 
 }
 
 // saveHD encodes frames as the HD GIF and saves it, returning its code.
-func saveHD(gifs *gifstore.Store, frames []image.Image) (string, error) {
+func saveHD(gifs *gif.Store, frames []image.Image) (string, error) {
 	hd, err := gif.Encode(frames, config.HDGIFFrameDelay, config.HDGIFDither)
 	if err != nil {
 		return "", err
 	}
-	code, err := gifstore.NewCode()
+	code, err := gif.NewCode()
 	if err != nil {
 		return "", err
 	}

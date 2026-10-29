@@ -1,7 +1,4 @@
-// Package gifstore keeps the HD alarm GIFs on disk under a size limit, so
-// /hd can send them later. When the limit is exceeded the oldest GIFs are
-// deleted first.
-package gifstore
+package gif
 
 import (
 	"crypto/rand"
@@ -21,7 +18,7 @@ const ext = ".gif"
 
 // ErrNotFound is returned by Get for a code that was never saved or has been
 // deleted to make room.
-var ErrNotFound = errors.New("gifstore: no such gif")
+var ErrNotFound = errors.New("gif: no such gif")
 
 // Store saves GIFs under a code and keeps their total size at or below max.
 type Store struct {
@@ -32,9 +29,9 @@ type Store struct {
 	mu sync.Mutex
 }
 
-// New opens the store in directory root, creating it if needed. max is the
+// NewStore opens the store in directory root, creating it if needed. max is the
 // largest total size of the GIFs in bytes.
-func New(root string, max int64) (*Store, error) {
+func NewStore(root string, max int64) (*Store, error) {
 	disk, err := storage.NewLocalStorage(root)
 	if err != nil {
 		return nil, err
@@ -70,7 +67,7 @@ func validCode(code string) bool {
 // size is within the limit. A GIF bigger than the limit is deleted at once.
 func (s *Store) Save(code string, data []byte) error {
 	if !validCode(code) {
-		return errors.New("gifstore: invalid code")
+		return errors.New("gif: invalid code")
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()

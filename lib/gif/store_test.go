@@ -1,4 +1,4 @@
-package gifstore
+package gif
 
 import (
 	"bytes"
@@ -10,7 +10,7 @@ import (
 )
 
 func TestSaveGet(t *testing.T) {
-	s, err := New(t.TempDir(), 100)
+	s, err := NewStore(t.TempDir(), 100)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -27,7 +27,7 @@ func TestSaveGet(t *testing.T) {
 }
 
 func TestInvalidCodes(t *testing.T) {
-	s, _ := New(t.TempDir(), 100)
+	s, _ := NewStore(t.TempDir(), 100)
 	for _, code := range []string{"", "../x", "abc12", "abc1234", "ghijkl", "..%2f..", "a/b123"} {
 		if err := s.Save(code, nil); err == nil {
 			t.Errorf("Save(%q) succeeded", code)
@@ -40,7 +40,7 @@ func TestInvalidCodes(t *testing.T) {
 
 func TestEvictsOldestFirst(t *testing.T) {
 	dir := t.TempDir()
-	s, _ := New(dir, 25)
+	s, _ := NewStore(dir, 25)
 	base := time.Now().Add(-time.Hour)
 	for i, code := range []string{"000001", "000002", "000003"} {
 		if err := s.Save(code, bytes.Repeat([]byte("x"), 10)); err != nil {
@@ -65,7 +65,7 @@ func TestEvictsOldestFirst(t *testing.T) {
 }
 
 func TestOversizeGIFIsDropped(t *testing.T) {
-	s, _ := New(t.TempDir(), 5)
+	s, _ := NewStore(t.TempDir(), 5)
 	if err := s.Save("000001", make([]byte, 10)); err != nil {
 		t.Fatal(err)
 	}
