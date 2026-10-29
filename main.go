@@ -14,6 +14,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"security_camera/lib/config"
 	"security_camera/lib/detection"
 	"security_camera/lib/env"
 	"security_camera/lib/gif"
@@ -25,20 +26,11 @@ import (
 	"security_camera/lib/telegram"
 )
 
-// alarmCooldown is the minimum time between two Telegram notifications.
-const alarmCooldown = 30 * time.Second
-
-// gifFrameDelay is the pause between GIF frames, in hundredths of a second.
-const gifFrameDelay = 10
-
 // envBool reports whether the variable is set to a true value (1, true, ...).
 func envBool(key string) bool {
 	v, _ := strconv.ParseBool(os.Getenv(key))
 	return v
 }
-
-// cameraChoiceTimeout is how long the camera prompt waits before using the first camera.
-const cameraChoiceTimeout = 5 * time.Second
 
 // pickCamera returns the id of the camera to use. The choice is kept in
 // CAMERA_ID; it is asked again only when refetch is set, nothing is saved yet
@@ -65,7 +57,7 @@ func pickCamera(refetch bool) (string, error) {
 	for i, d := range devs {
 		labels[i] = d.Label
 	}
-	chosen := devs[env.Choose(os.Stdin, os.Stdout, "Several cameras found:", labels, cameraChoiceTimeout)]
+	chosen := devs[env.Choose(os.Stdin, os.Stdout, "Several cameras found:", labels, config.CameraChoiceTimeout)]
 	if err := env.Save(".env", "CAMERA_ID", chosen.ID); err != nil {
 		return "", err
 	}
@@ -120,7 +112,7 @@ func main() {
 	if cfg.DeviceID, err = pickCamera(*fetchCamera); err != nil {
 		panic(err)
 	}
-	mon := monitor.New(cfg.DeviceID, threshold, alarmCooldown)
+	mon := monitor.New(cfg.DeviceID, threshold, config.AlarmCooldown)
 	video, err := my_video.Open(cfg)
 	if err != nil {
 		panic(err)
@@ -182,11 +174,11 @@ func main() {
 			return
 		}
 		graph.Push(diff)
-		if diff >= threshold && ts.Sub(mon.LastAlarm()) > alarmCooldown {
+		if diff >= threshold && ts.Sub(mon.LastAlarm()) > config.AlarmCooldown {
 			mon.Alarm(ts)
 			caption := fmt.Sprintf("Alarm: motion detected at %s (difference %.4f)", ts.Format("15:04:05"), diff)
 			// encode now: the frames are only valid until this handler returns
-			animation, err := gif.Encode(append(history, frame), gifFrameDelay)
+			animation, err := gif.Encode(append(history, frame), config.GIFFrameDelay)
 			go func() {
 				if err != nil {
 					fmt.Fprintln(os.Stderr, "gif:", err)
