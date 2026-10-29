@@ -150,9 +150,11 @@ func main() {
 		if !mon.Paused() && score >= mon.ThresholdOf(detector.Name()) && ts.Sub(mon.LastAlarm()) > config.AlarmCooldown {
 			mon.Alarm(ts)
 			caption := fmt.Sprintf("Alarm: motion detected at %s (%s score %.4f)", ts.Format("15:04:05"), detector.Name(), score)
-			// encode now: the frames are only valid until this handler returns
-			animation, err := gif.Encode(lastFrames(history, frame, mon.GIFFrames()), config.GIFFrameDelay)
+			// shrink now: the frames are only valid until this handler returns,
+			// and Shrink copies them
+			frames := gif.Shrink(everyNth(lastFrames(history, frame, mon.GIFFrames()), config.GIFFrameStep), config.GIFWidth)
 			go func() {
+				animation, err := gif.Encode(frames, config.GIFFrameDelay, config.GIFDither)
 				if err != nil {
 					fmt.Fprintln(os.Stderr, "gif:", err)
 					err = bot.SendMessage(caption)
@@ -222,4 +224,16 @@ func lastFrames(history []image.Image, frame image.Image, n int) []image.Image {
 	out := make([]image.Image, 0, len(history)+1)
 	out = append(out, history...)
 	return append(out, frame)
+}
+
+// everyNth returns one frame out of every n, always keeping the last one.
+func everyNth(frames []image.Image, n int) []image.Image {
+	if n <= 1 {
+		return frames
+	}
+	out := make([]image.Image, 0, (len(frames)+n-1)/n)
+	for i := (len(frames) - 1) % n; i < len(frames); i += n {
+		out = append(out, frames[i])
+	}
+	return out
 }
