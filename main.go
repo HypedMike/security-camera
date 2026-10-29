@@ -2,15 +2,20 @@ package main
 
 import (
 	"bytes"
+	"cmp"
 	"context"
 	"errors"
 	"flag"
 	"fmt"
 	"image"
 	"image/jpeg"
+	"maps"
+	"math"
 	"os"
 	"os/signal"
+	"slices"
 	"strconv"
+	"strings"
 	"time"
 
 	"security_camera/lib/config"
@@ -35,10 +40,6 @@ func main() {
 	err := env.Ensure(config.EnvFile, os.Stdin, os.Stdout,
 		env.Var{Key: "TELEGRAM_BOT_TOKEN", Prompt: "Telegram bot token from @BotFather"},
 		env.Var{Key: "TELEGRAM_CHAT_ID", Prompt: "Telegram chat id"},
-		env.Var{Key: "ALARM_THRESHOLD", Prompt: "Frame difference at or above which an alarm is sent, e.g. 0.05", Validate: func(s string) error {
-			_, err := strconv.ParseFloat(s, 64)
-			return err
-		}},
 	)
 	if err != nil {
 		panic(err)
@@ -60,18 +61,32 @@ func main() {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
-	threshold, err := strconv.ParseFloat(os.Getenv("ALARM_THRESHOLD"), 64)
-	if err != nil {
-		panic(fmt.Errorf("ALARM_THRESHOLD: %w", err))
+	// ALARM_THRESHOLD is the name the difference threshold had before there
+	// were several detectors
+	thresholds := map[string]float64{
+		detection.NameBackground: envThreshold("BACKGROUND_THRESHOLD", config.BackgroundThreshold),
+		detection.NameDifference: envThreshold("DIFFERENCE_THRESHOLD", envThreshold("ALARM_THRESHOLD", config.DifferenceThreshold)),
 	}
+	detectorName := cmp.Or(os.Getenv("DETECTOR"), config.DefaultDetector)
 
 	cfg := my_video.DefaultConfig
 	if cfg.DeviceID, err = my_video.Pick(*fetchCamera); err != nil {
 		panic(err)
 	}
-	mon := monitor.New(cfg.DeviceID, threshold, config.AlarmCooldown)
+	mon := monitor.New(cfg.DeviceID, detectorName, thresholds, config.AlarmCooldown)
 	mon.SetDetectionFrames(config.DetectionFrames)
 	mon.SetGIFFrames(config.GIFFrames)
+
+	detectors := map[string]detection.Detector{}
+	for _, d := range []detection.Detector{
+		detection.NewBackground(),
+		&detection.FrameDifference{Frames: mon.DetectionFrames},
+	} {
+		detectors[d.Name()] = d
+	}
+	if _, ok := detectors[detectorName]; !ok {
+		panic(fmt.Errorf("DETECTOR: unknown detector %q, use one of: %s", detectorName, strings.Join(slices.Sorted(maps.Keys(detectors)), ", ")))
+	}
 	video, err := my_video.Open(cfg)
 	if err != nil {
 		panic(err)
@@ -93,7 +108,7 @@ func main() {
 	stream := streaming.New(video.Track(), streaming.Options{History: config.StreamHistory})
 
 	var cmds commandState
-	initTelegramCommands(ctx, cancel, bot, mon, stream, &cmds)
+	initTelegramCommands(ctx, cancel, bot, mon, stream, detectors, &cmds)
 
 	stream.AddHandler(func(_ image.Image, _ []image.Image, ts time.Time) {
 		mon.Frame(ts)
@@ -116,21 +131,25 @@ func main() {
 		}()
 	})
 
+	// detector is only used by this handler; /detector switches it through
+	// the monitor, and the newly chosen one starts learning from scratch
+	var detector detection.Detector
 	stream.AddHandler(func(frame image.Image, history []image.Image, ts time.Time) {
-		if len(history) == 0 {
-			return
+		if name := mon.Detector(); detector == nil || detector.Name() != name {
+			detector = detectors[name]
+			detector.Reset()
 		}
-		diff, err := detection.Difference(append(history, frame))
+		score, err := detector.Score(frame, history)
 		if err != nil {
 			fmt.Fprintln(os.Stderr, "detection:", err)
 			return
 		}
 		if graph != nil {
-			graph.Push(diff)
+			graph.Push(score)
 		}
-		if !mon.Paused() && diff >= mon.Threshold() && ts.Sub(mon.LastAlarm()) > config.AlarmCooldown {
+		if !mon.Paused() && score >= mon.ThresholdOf(detector.Name()) && ts.Sub(mon.LastAlarm()) > config.AlarmCooldown {
 			mon.Alarm(ts)
-			caption := fmt.Sprintf("Alarm: motion detected at %s (difference %.4f)", ts.Format("15:04:05"), diff)
+			caption := fmt.Sprintf("Alarm: motion detected at %s (%s score %.4f)", ts.Format("15:04:05"), detector.Name(), score)
 			// encode now: the frames are only valid until this handler returns
 			animation, err := gif.Encode(lastFrames(history, frame, mon.GIFFrames()), config.GIFFrameDelay)
 			go func() {
@@ -146,7 +165,7 @@ func main() {
 			}()
 		}
 		if printDiffs {
-			fmt.Printf("%s difference: %.4f\n", ts.Format("15:04:05.000"), diff)
+			fmt.Printf("%s %s score: %.4f\n", ts.Format("15:04:05.000"), detector.Name(), score)
 		}
 	})
 
@@ -175,6 +194,20 @@ func main() {
 		fmt.Fprintln(os.Stderr, "restart:", err)
 		os.Exit(1)
 	}
+}
+
+// envThreshold returns the alarm threshold in the variable key, or def if it
+// is not set.
+func envThreshold(key string, def float64) float64 {
+	v := os.Getenv(key)
+	if v == "" {
+		return def
+	}
+	t, err := strconv.ParseFloat(v, 64)
+	if err != nil || math.IsNaN(t) || t < 0 || t > 1 {
+		panic(fmt.Errorf("%s: %q is not a number between 0 and 1", key, v))
+	}
+	return t
 }
 
 // lastFrames returns the last n frames of history followed by frame, so n

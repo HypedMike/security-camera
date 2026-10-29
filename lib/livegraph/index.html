@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Frame difference</title>
+<title>Motion score</title>
 <style>
   :root { --bg: #fff; --fg: #1a1a1a; --muted: #777; --grid: #e5e5e5; --line: #2563eb; }
   @media (prefers-color-scheme: dark) {
@@ -17,7 +17,7 @@
 </style>
 </head>
 <body>
-<h1>Frame difference</h1>
+<h1>Motion score</h1>
 <div><span id="value">–</span> <span id="status">connecting…</span></div>
 <canvas id="chart"></canvas>
 <script>
@@ -35,7 +35,7 @@ function draw() {
   ctx.clearRect(0, 0, w, h);
 
   const left = 48, bottom = 4, top = 8;
-  const max = Math.max(0.05, ...points.map(p => p[1])) * 1.1;
+  const max = Math.max(0.005, ...points.map(p => p[1])) * 1.1;
   const y = v => top + (h - top - bottom) * (1 - v / max);
   const x = i => left + (w - left) * (i / (MAX - 1));
 
@@ -44,7 +44,7 @@ function draw() {
   for (let i = 0; i <= 4; i++) {
     const v = max * i / 4, yy = Math.round(y(v)) + 0.5;
     ctx.beginPath(); ctx.moveTo(left, yy); ctx.lineTo(w, yy); ctx.stroke();
-    ctx.fillText(v.toFixed(3), 4, yy + 4);
+    ctx.fillText(v.toFixed(4), 4, yy + 4);
   }
   if (!points.length) return;
 

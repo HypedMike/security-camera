@@ -48,10 +48,10 @@
   <section>
     <h2>Features</h2>
     <div class="grid">
-      <div class="card"><h3>Motion detection</h3><p>Compares recent frames pixel by pixel and alarms when the average difference crosses your threshold.</p></div>
+      <div class="card"><h3>Motion detection</h3><p>Learns what the empty scene looks like and alarms when a moving blob is large enough, even small or far from the camera. A simpler frame-difference detector can be switched in from Telegram.</p></div>
       <div class="card"><h3>GIF alerts</h3><p>Every alarm arrives in Telegram as a short animated GIF with a timestamp, rate-limited to one every 30 seconds.</p></div>
       <div class="card"><h3>Bot commands</h3><p>Ask for a snapshot, check machine status, or update the program, only from your configured chat.</p></div>
-      <div class="card"><h3>Live graph</h3><p>Optional web page plotting the frame difference in real time to help tune the threshold.</p></div>
+      <div class="card"><h3>Live graph</h3><p>Optional web page plotting the motion score in real time to help tune the threshold.</p></div>
     </div>
   </section>
 
@@ -64,7 +64,8 @@
       <tr><td><code>/update</code></td><td>Pulls the latest code, rebuilds and restarts</td></tr>
       <tr><td><code>/pause</code></td><td>Stops sending alarms</td></tr>
       <tr><td><code>/resume</code></td><td>Starts sending alarms again</td></tr>
-      <tr><td><code>/threshold [value]</code></td><td>Shows or changes the alarm threshold until the next restart</td></tr>
+      <tr><td><code>/threshold [value]</code></td><td>Shows or changes the alarm threshold of the detector in use until the next restart</td></tr>
+      <tr><td><code>/detector [name]</code></td><td>Shows or changes the motion detector (<code>background</code> or <code>difference</code>) until the next restart</td></tr>
     </table></div>
   </section>
 
@@ -76,7 +77,7 @@ git clone https://github.com/HypedMike/security-camera
 cd security-camera
 ./build_linux
 ./securitycamera</code></pre>
-    <p>On first run it asks for your bot token, chat id and alarm threshold, lets you pick a camera, and saves everything to <code>.env</code>.</p>
+    <p>On first run it asks for your bot token and chat id, lets you pick a camera, and saves everything to <code>.env</code>.</p>
   </section>
 
   <section>
@@ -85,10 +86,12 @@ cd security-camera
       <tr><th>Variable</th><th>Description</th></tr>
       <tr><td><code>TELEGRAM_BOT_TOKEN</code></td><td>Bot token (required)</td></tr>
       <tr><td><code>TELEGRAM_CHAT_ID</code></td><td>Chat the bot talks to (required)</td></tr>
-      <tr><td><code>ALARM_THRESHOLD</code></td><td>Difference from 0 to 1 that triggers an alarm, e.g. <code>0.05</code> (required)</td></tr>
+      <tr><td><code>DETECTOR</code></td><td>Motion detector: <code>background</code> (default) or <code>difference</code></td></tr>
+      <tr><td><code>BACKGROUND_THRESHOLD</code></td><td>Moving blob area from 0 to 1 that triggers an alarm, default <code>0.003</code></td></tr>
+      <tr><td><code>DIFFERENCE_THRESHOLD</code></td><td>Frame difference from 0 to 1 that triggers an alarm, default <code>0.05</code> (formerly <code>ALARM_THRESHOLD</code>)</td></tr>
       <tr><td><code>CAMERA_ID</code></td><td>Camera to use; saved on first run</td></tr>
       <tr><td><code>LIVE_STREAM_GRAPH</code></td><td>Serve the live graph on port 8080</td></tr>
-      <tr><td><code>PRINT_DIFFERENCES</code></td><td>Log each frame's difference</td></tr>
+      <tr><td><code>PRINT_DIFFERENCES</code></td><td>Log each frame's motion score</td></tr>
     </table></div>
   </section>
 

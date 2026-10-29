@@ -3,7 +3,7 @@ package monitor
 
 import (
 	"fmt"
-	"math"
+	"sync"
 	"sync/atomic"
 	"time"
 )
@@ -14,8 +14,12 @@ type Monitor struct {
 	cooldown time.Duration
 	started  time.Time
 
-	threshold atomic.Uint64 // float64 bits
-	paused    atomic.Bool
+	// mu guards the detector and the thresholds, one per detector
+	mu         sync.Mutex
+	detector   string
+	thresholds map[string]float64
+
+	paused atomic.Bool
 
 	detectFrames, gifFrames atomic.Int64
 
@@ -24,12 +28,30 @@ type Monitor struct {
 }
 
 // New starts a monitor. camera is the device id ("" for the default camera);
-// threshold is the alarm threshold to start with; it and the cooldown are
+// detector is the name of the motion detector in use and thresholds the
+// alarm threshold of each detector to start with; they and the cooldown are
 // shown in the report.
-func New(camera string, threshold float64, cooldown time.Duration) *Monitor {
-	m := &Monitor{camera: camera, cooldown: cooldown, started: time.Now()}
-	m.SetThreshold(threshold)
+func New(camera, detector string, thresholds map[string]float64, cooldown time.Duration) *Monitor {
+	m := &Monitor{camera: camera, cooldown: cooldown, started: time.Now(), detector: detector, thresholds: map[string]float64{}}
+	for name, t := range thresholds {
+		m.thresholds[name] = t
+	}
 	return m
+}
+
+// Detector returns the name of the motion detector in use.
+func (m *Monitor) Detector() string {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.detector
+}
+
+// SetDetector changes the motion detector in use. The caller checks that
+// the name is a known detector.
+func (m *Monitor) SetDetector(name string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.detector = name
 }
 
 // DetectionFrames returns how many of the latest frames the difference is computed on.
@@ -44,14 +66,24 @@ func (m *Monitor) GIFFrames() int { return int(m.gifFrames.Load()) }
 // SetGIFFrames changes how many of the latest frames an alarm GIF contains.
 func (m *Monitor) SetGIFFrames(n int) { m.gifFrames.Store(int64(n)) }
 
-// Threshold returns the frame difference at or above which an alarm is sent.
+// Threshold returns the motion score at or above which the detector in use
+// sends an alarm.
 func (m *Monitor) Threshold() float64 {
-	return math.Float64frombits(m.threshold.Load())
+	return m.ThresholdOf(m.Detector())
 }
 
-// SetThreshold changes the alarm threshold.
+// ThresholdOf returns the alarm threshold of the named detector.
+func (m *Monitor) ThresholdOf(detector string) float64 {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.thresholds[detector]
+}
+
+// SetThreshold changes the alarm threshold of the detector in use.
 func (m *Monitor) SetThreshold(t float64) {
-	m.threshold.Store(math.Float64bits(t))
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.thresholds[m.detector] = t
 }
 
 // SetPaused pauses or resumes the alarms.
@@ -110,6 +142,6 @@ func (m *Monitor) Report() string {
 	if m.Paused() {
 		state = "paused"
 	}
-	return fmt.Sprintf("Camera\n  device: %s\n  frames: %d (%.1f fps average)\n  last frame: %s\n  alarms sent: %d\n  alarm state: %s\n  last alarm: %s\n  alarm threshold: %g, cooldown %s\n  detection frames: %d, gif frames: %d",
-		camera, frames, fps, ago(fromNanos(m.lastFrame.Load())), m.alarms.Load(), state, ago(m.LastAlarm()), m.Threshold(), m.cooldown, m.DetectionFrames(), m.GIFFrames())
+	return fmt.Sprintf("Camera\n  device: %s\n  frames: %d (%.1f fps average)\n  last frame: %s\n  alarms sent: %d\n  alarm state: %s\n  last alarm: %s\n  detector: %s\n  alarm threshold: %g, cooldown %s\n  detection frames: %d, gif frames: %d",
+		camera, frames, fps, ago(fromNanos(m.lastFrame.Load())), m.alarms.Load(), state, ago(m.LastAlarm()), m.Detector(), m.Threshold(), m.cooldown, m.DetectionFrames(), m.GIFFrames())
 }
