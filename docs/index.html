@@ -49,7 +49,7 @@
     <h2>Features</h2>
     <div class="grid">
       <div class="card"><h3>Motion detection</h3><p>Learns what the empty scene looks like and alarms when a moving blob is large enough, even small or far from the camera. A simpler frame-difference detector can be switched in from Telegram.</p></div>
-      <div class="card"><h3>GIF alerts</h3><p>Every alarm arrives in Telegram as a tiny low quality GIF with a timestamp and a code; send <code>/hd &lt;code&gt;</code> for the full quality one. Rate-limited to one alarm every 30 seconds.</p></div>
+      <div class="card"><h3>GIF alerts</h3><p>Every alarm arrives in Telegram as a tiny low quality GIF with a timestamp and a code; send <code>/hd &lt;code&gt;</code> for the full quality one. Rate-limited to one alarm every 5 seconds.</p></div>
       <div class="card"><h3>Bot commands</h3><p>Ask for a snapshot, check machine status, or update the program, only from your configured chat.</p></div>
       <div class="card"><h3>Live graph</h3><p>Optional web page plotting the motion score in real time to help tune the threshold.</p></div>
     </div>
@@ -65,8 +65,7 @@
       <tr><td><code>/update</code></td><td>Pulls the latest code, rebuilds and restarts</td></tr>
       <tr><td><code>/pause</code></td><td>Stops sending alarms</td></tr>
       <tr><td><code>/resume</code></td><td>Starts sending alarms again</td></tr>
-      <tr><td><code>/threshold [value]</code></td><td>Shows or changes the alarm threshold of the detector in use until the next restart</td></tr>
-      <tr><td><code>/detector [name]</code></td><td>Shows or changes the motion detector (<code>background</code> or <code>difference</code>) until the next restart</td></tr>
+      <tr><td><code>/edit_config [json]</code></td><td>Sends all the settings as JSON; send it back with <code>/edit_config</code> in front to change them until the next restart</td></tr>
     </table></div>
   </section>
 

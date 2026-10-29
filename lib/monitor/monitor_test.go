@@ -69,3 +69,12 @@ func TestDetectorThresholds(t *testing.T) {
 		t.Errorf("report:\n%s", r)
 	}
 }
+
+func TestCooldownAndThresholdOf(t *testing.T) {
+	m := New("", "difference", map[string]float64{"difference": 0.05, "background": 0.003}, 30*time.Second)
+	m.SetCooldown(5 * time.Second)
+	m.SetThresholdOf("background", 0.01)
+	if m.Cooldown() != 5*time.Second || m.ThresholdOf("background") != 0.01 || m.Threshold() != 0.05 {
+		t.Errorf("cooldown %v, background %v, in use %v", m.Cooldown(), m.ThresholdOf("background"), m.Threshold())
+	}
+}

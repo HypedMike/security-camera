@@ -10,16 +10,16 @@ import (
 
 // Monitor records frames and alarms. It is safe for concurrent use.
 type Monitor struct {
-	camera   string
-	cooldown time.Duration
-	started  time.Time
+	camera  string
+	started time.Time
 
 	// mu guards the detector and the thresholds, one per detector
 	mu         sync.Mutex
 	detector   string
 	thresholds map[string]float64
 
-	paused atomic.Bool
+	paused   atomic.Bool
+	cooldown atomic.Int64 // time.Duration
 
 	detectFrames, gifFrames atomic.Int64
 
@@ -32,7 +32,8 @@ type Monitor struct {
 // alarm threshold of each detector to start with; they and the cooldown are
 // shown in the report.
 func New(camera, detector string, thresholds map[string]float64, cooldown time.Duration) *Monitor {
-	m := &Monitor{camera: camera, cooldown: cooldown, started: time.Now(), detector: detector, thresholds: map[string]float64{}}
+	m := &Monitor{camera: camera, started: time.Now(), detector: detector, thresholds: map[string]float64{}}
+	m.cooldown.Store(int64(cooldown))
 	for name, t := range thresholds {
 		m.thresholds[name] = t
 	}
@@ -85,6 +86,19 @@ func (m *Monitor) SetThreshold(t float64) {
 	defer m.mu.Unlock()
 	m.thresholds[m.detector] = t
 }
+
+// SetThresholdOf changes the alarm threshold of the named detector.
+func (m *Monitor) SetThresholdOf(detector string, t float64) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.thresholds[detector] = t
+}
+
+// Cooldown returns the minimum time between two alarms.
+func (m *Monitor) Cooldown() time.Duration { return time.Duration(m.cooldown.Load()) }
+
+// SetCooldown changes the minimum time between two alarms.
+func (m *Monitor) SetCooldown(d time.Duration) { m.cooldown.Store(int64(d)) }
 
 // SetPaused pauses or resumes the alarms.
 func (m *Monitor) SetPaused(paused bool) {
@@ -143,5 +157,5 @@ func (m *Monitor) Report() string {
 		state = "paused"
 	}
 	return fmt.Sprintf("Camera\n  device: %s\n  frames: %d (%.1f fps average)\n  last frame: %s\n  alarms sent: %d\n  alarm state: %s\n  last alarm: %s\n  detector: %s\n  alarm threshold: %g, cooldown %s\n  detection frames: %d, gif frames: %d",
-		camera, frames, fps, ago(fromNanos(m.lastFrame.Load())), m.alarms.Load(), state, ago(m.LastAlarm()), m.Detector(), m.Threshold(), m.cooldown, m.DetectionFrames(), m.GIFFrames())
+		camera, frames, fps, ago(fromNanos(m.lastFrame.Load())), m.alarms.Load(), state, ago(m.LastAlarm()), m.Detector(), m.Threshold(), m.Cooldown(), m.DetectionFrames(), m.GIFFrames())
 }

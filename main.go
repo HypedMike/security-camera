@@ -114,8 +114,9 @@ func main() {
 		gifs = nil
 	}
 
+	live := config.NewLive()
 	var cmds commandState
-	initTelegramCommands(ctx, cancel, bot, mon, stream, detectors, gifs, &cmds)
+	initTelegramCommands(ctx, cancel, bot, mon, stream, detectors, gifs, live, &cmds)
 
 	stream.AddHandler(func(_ image.Image, _ []image.Image, ts time.Time) {
 		mon.Frame(ts)
@@ -127,7 +128,7 @@ func main() {
 		}
 		// encode now: the frame is only valid until this handler returns
 		var buf bytes.Buffer
-		err := jpeg.Encode(&buf, frame, &jpeg.Options{Quality: config.SnapJPEGQuality})
+		err := jpeg.Encode(&buf, frame, &jpeg.Options{Quality: live.Get().SnapJPEGQuality})
 		go func() {
 			if err == nil {
 				err = bot.SendPhoto(buf.Bytes(), "Snapshot at "+ts.Format("15:04:05"))
@@ -157,11 +158,11 @@ func main() {
 		if graph != nil {
 			graph.Push(score)
 		}
-		if !mon.Paused() && alarm == nil && score >= mon.ThresholdOf(detector.Name()) && ts.Sub(mon.LastAlarm()) > config.AlarmCooldown {
+		if !mon.Paused() && alarm == nil && score >= mon.ThresholdOf(detector.Name()) && ts.Sub(mon.LastAlarm()) > mon.Cooldown() {
 			mon.Alarm(ts)
 			// the motion has only just started: wait AlarmDelay and send the
 			// GIF then, so it also covers what comes after the detection
-			alarm = &pendingAlarm{at: ts, due: ts.Add(config.AlarmDelay), detector: detector.Name(), score: score}
+			alarm = &pendingAlarm{at: ts, due: ts.Add(live.Get().AlarmDelay), detector: detector.Name(), score: score}
 		}
 		if alarm != nil && !ts.Before(alarm.due) {
 			a := alarm
@@ -170,8 +171,9 @@ func main() {
 				caption := fmt.Sprintf("Alarm: motion detected at %s (%s score %.4f)", a.at.Format("15:04:05"), a.detector, a.score)
 				// shrink now: the frames are only valid until this handler returns,
 				// and Shrink copies them
-				hdFrames := gif.Shrink(everyNth(lastFrames(history, frame, mon.GIFFrames()), config.HDGIFFrameStep), config.HDGIFWidth)
-				go sendAlarm(bot, gifs, hdFrames, caption)
+				v := live.Get()
+				hdFrames := gif.Shrink(everyNth(lastFrames(history, frame, mon.GIFFrames()), v.HDGIFFrameStep), v.HDGIFWidth)
+				go sendAlarm(bot, gifs, hdFrames, caption, v)
 			}
 		}
 		if printDiffs {
@@ -210,9 +212,9 @@ func main() {
 // saves the HD one in gifs under that code for /hd. Without a store, or if
 // the HD GIF can't be made or saved, the code is left out. hdFrames are the
 // frames of the HD GIF.
-func sendAlarm(bot *telegram.Bot, gifs *gif.Store, hdFrames []image.Image, caption string) {
-	lowFrames := gif.Shrink(everyNth(hdFrames, config.LowGIFFrameStep), config.LowGIFWidth)
-	low, err := gif.Encode(lowFrames, config.LowGIFFrameDelay, false)
+func sendAlarm(bot *telegram.Bot, gifs *gif.Store, hdFrames []image.Image, caption string, v config.Values) {
+	lowFrames := gif.Shrink(everyNth(hdFrames, v.LowGIFFrameStep), v.LowGIFWidth)
+	low, err := gif.Encode(lowFrames, v.LowGIFFrameDelay, false)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "gif:", err)
 		if err = bot.SendMessage(caption); err != nil {
@@ -223,7 +225,7 @@ func sendAlarm(bot *telegram.Bot, gifs *gif.Store, hdFrames []image.Image, capti
 
 	// the HD GIF is saved before the alarm goes out, so the code works at once
 	if gifs != nil {
-		if code, err := saveHD(gifs, hdFrames); err != nil {
+		if code, err := saveHD(gifs, hdFrames, v); err != nil {
 			fmt.Fprintln(os.Stderr, "hd gif:", err)
 		} else {
 			caption += fmt.Sprintf("\nHD version: /hd %s", code)
@@ -235,8 +237,8 @@ func sendAlarm(bot *telegram.Bot, gifs *gif.Store, hdFrames []image.Image, capti
 }
 
 // saveHD encodes frames as the HD GIF and saves it, returning its code.
-func saveHD(gifs *gif.Store, frames []image.Image) (string, error) {
-	hd, err := gif.Encode(frames, config.HDGIFFrameDelay, config.HDGIFDither)
+func saveHD(gifs *gif.Store, frames []image.Image, v config.Values) (string, error) {
+	hd, err := gif.Encode(frames, v.HDGIFFrameDelay, v.HDGIFDither)
 	if err != nil {
 		return "", err
 	}

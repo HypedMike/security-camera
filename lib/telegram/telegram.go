@@ -62,6 +62,19 @@ func (m Message) Args() []string {
 	return nil
 }
 
+// Payload returns everything after the command, trimmed, with its line breaks
+// kept, e.g. a JSON document for "/edit_config {...}". It is "" if there is none.
+func (m Message) Payload() string {
+	if !strings.HasPrefix(m.Text, "/") {
+		return ""
+	}
+	i := strings.IndexAny(m.Text, " \t\r\n")
+	if i < 0 {
+		return ""
+	}
+	return strings.TrimSpace(m.Text[i:])
+}
+
 // Listener is called for every message received in the configured chat.
 type Listener func(Message)
 
