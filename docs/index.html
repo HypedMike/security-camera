@@ -1,0 +1,97 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Security Camera</title>
+<meta name="description" content="Turn a Linux machine with a webcam into a motion-detecting security camera controlled from Telegram.">
+<style>
+  :root { --bg:#0f1115; --fg:#e8eaed; --muted:#9aa0a6; --card:#181b22; --accent:#4ade80; --border:#2a2e38; }
+  @media (prefers-color-scheme: light) {
+    :root { --bg:#fafafa; --fg:#1b1d21; --muted:#5f6368; --card:#fff; --accent:#16a34a; --border:#e3e5e8; }
+  }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--fg); font:16px/1.6 system-ui,-apple-system,Segoe UI,Roboto,sans-serif; }
+  main { max-width: 860px; margin: 0 auto; padding: 0 16px 64px; }
+  header { padding: 72px 0 32px; }
+  h1 { font-size: clamp(2rem, 6vw, 3rem); margin: 0 0 12px; letter-spacing: -0.02em; }
+  h1 span { color: var(--accent); }
+  p.lead { font-size: 1.15rem; color: var(--muted); max-width: 620px; margin: 0 0 24px; }
+  .btn { display:inline-block; padding: 10px 18px; border-radius: 8px; text-decoration:none; font-weight:600; border:1px solid var(--border); color:var(--fg); margin: 0 8px 8px 0; }
+  .btn.primary { background: var(--accent); color:#04130a; border-color: var(--accent); }
+  h2 { margin: 48px 0 16px; font-size: 1.4rem; }
+  .grid { display:grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 16px; }
+  .card { background:var(--card); border:1px solid var(--border); border-radius: 12px; padding: 18px; }
+  .card h3 { margin: 0 0 6px; font-size: 1.05rem; }
+  .card p { margin: 0; color: var(--muted); font-size: .95rem; }
+  pre { background:var(--card); border:1px solid var(--border); border-radius:10px; padding:14px 16px; overflow-x:auto; font-size:.9rem; }
+  code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+  p code, td code, li code { background: var(--card); border:1px solid var(--border); border-radius:5px; padding:1px 6px; font-size:.88em; }
+  table { width:100%; border-collapse: collapse; background:var(--card); border:1px solid var(--border); border-radius:10px; overflow:hidden; }
+  th, td { text-align:left; padding: 10px 14px; border-bottom:1px solid var(--border); vertical-align: top; }
+  tr:last-child td { border-bottom:0; }
+  th { color: var(--muted); font-weight:600; font-size:.85rem; text-transform:uppercase; letter-spacing:.04em; }
+  footer { color: var(--muted); font-size:.9rem; margin-top: 56px; }
+  a { color: var(--accent); }
+  .table-wrap { overflow-x:auto; }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <h1>Security <span>Camera</span></h1>
+    <p class="lead">Turn any Linux machine with a webcam into a motion-detecting security camera, controlled entirely from Telegram.</p>
+    <a class="btn primary" href="https://github.com/HypedMike/security-camera">View on GitHub</a>
+    <a class="btn" href="#setup">Get started</a>
+  </header>
+
+  <section>
+    <h2>Features</h2>
+    <div class="grid">
+      <div class="card"><h3>Motion detection</h3><p>Compares recent frames pixel by pixel and alarms when the average difference crosses your threshold.</p></div>
+      <div class="card"><h3>GIF alerts</h3><p>Every alarm arrives in Telegram as a short animated GIF with a timestamp, rate-limited to one every 30 seconds.</p></div>
+      <div class="card"><h3>Bot commands</h3><p>Ask for a snapshot, check machine status, or update the program, only from your configured chat.</p></div>
+      <div class="card"><h3>Live graph</h3><p>Optional web page plotting the frame difference in real time to help tune the threshold.</p></div>
+    </div>
+  </section>
+
+  <section>
+    <h2>Telegram commands</h2>
+    <div class="table-wrap"><table>
+      <tr><th>Command</th><th>Description</th></tr>
+      <tr><td><code>/snap</code></td><td>Sends the next camera frame as a photo</td></tr>
+      <tr><td><code>/info</code></td><td>Reports machine state and camera/alarm state</td></tr>
+      <tr><td><code>/update</code></td><td>Pulls the latest code, rebuilds and restarts</td></tr>
+    </table></div>
+  </section>
+
+  <section id="setup">
+    <h2>Get started</h2>
+    <p>You need Linux with a V4L2 webcam, Go 1.24+, a C toolchain, and a bot token from <a href="https://t.me/BotFather">@BotFather</a>.</p>
+<pre><code>sudo apt install build-essential linux-libc-dev
+git clone https://github.com/HypedMike/security-camera
+cd security-camera
+./build_linux
+./securitycamera</code></pre>
+    <p>On first run it asks for your bot token, chat id and alarm threshold, lets you pick a camera, and saves everything to <code>.env</code>.</p>
+  </section>
+
+  <section>
+    <h2>Configuration</h2>
+    <div class="table-wrap"><table>
+      <tr><th>Variable</th><th>Description</th></tr>
+      <tr><td><code>TELEGRAM_BOT_TOKEN</code></td><td>Bot token (required)</td></tr>
+      <tr><td><code>TELEGRAM_CHAT_ID</code></td><td>Chat the bot talks to (required)</td></tr>
+      <tr><td><code>ALARM_THRESHOLD</code></td><td>Difference from 0 to 1 that triggers an alarm, e.g. <code>0.05</code> (required)</td></tr>
+      <tr><td><code>CAMERA_ID</code></td><td>Camera to use; saved on first run</td></tr>
+      <tr><td><code>LIVE_STREAM_GRAPH</code></td><td>Serve the live graph on port 8080</td></tr>
+      <tr><td><code>PRINT_DIFFERENCES</code></td><td>Log each frame's difference</td></tr>
+    </table></div>
+  </section>
+
+  <footer>
+    <p>Keep your Telegram chat private: anyone in it can run <code>/update</code>. Full docs in the <a href="https://github.com/HypedMike/security-camera#readme">README</a>.</p>
+  </footer>
+</main>
+</body>
+</html>
