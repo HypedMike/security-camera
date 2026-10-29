@@ -20,6 +20,7 @@ import (
 	"security_camera/lib/livegraph"
 	"security_camera/lib/my_video"
 	"security_camera/lib/streaming"
+	"security_camera/lib/sysinfo"
 	"security_camera/lib/telegram"
 )
 
@@ -71,6 +72,36 @@ func pickCamera(refetch bool) (string, error) {
 	return chosen.ID, nil
 }
 
+type cameraStats struct {
+	cameraID  string
+	threshold float64
+	started   time.Time
+	frames    int64
+	alarms    int64
+	lastFrame int64 // unix nanos, 0 if none yet
+	lastAlarm int64 // unix nanos, 0 if none yet
+}
+
+// cameraReport describes what the camera part of the program is doing.
+func cameraReport(s cameraStats) string {
+	ago := func(nanos int64) string {
+		if nanos == 0 {
+			return "never"
+		}
+		return time.Since(time.Unix(0, nanos)).Round(time.Second).String() + " ago"
+	}
+	id := s.cameraID
+	if id == "" {
+		id = "default"
+	}
+	fps := 0.0
+	if el := time.Since(s.started).Seconds(); el > 0 {
+		fps = float64(s.frames) / el
+	}
+	return fmt.Sprintf("Camera\n  device: %s\n  frames: %d (%.1f fps average)\n  last frame: %s\n  alarms sent: %d\n  last alarm: %s\n  alarm threshold: %g, cooldown %s",
+		id, s.frames, fps, ago(s.lastFrame), s.alarms, ago(s.lastAlarm), s.threshold, alarmCooldown)
+}
+
 func main() {
 	fetchCamera := flag.Bool("fetch-camera", false, "list the cameras again and choose one, even if one is already saved")
 	flag.Parse()
@@ -114,6 +145,9 @@ func main() {
 		panic(fmt.Errorf("ALARM_THRESHOLD: %w", err))
 	}
 	var lastAlarm atomic.Int64 // unix nanos
+	var frames, alarms atomic.Int64
+	var lastFrame atomic.Int64 // unix nanos
+	started := time.Now()
 
 	cfg := my_video.DefaultConfig
 	if cfg.DeviceID, err = pickCamera(*fetchCamera); err != nil {
@@ -134,6 +168,33 @@ func main() {
 	fmt.Println("live graph at http://localhost:8080")
 
 	stream := streaming.New(video.Track(), streaming.Options{History: 10})
+
+	// /info reports the state of the machine and of the program
+	bot.AddListener(func(m telegram.Message) {
+		if m.Command() != "info" {
+			return
+		}
+		// the report takes a moment to measure, don't hold up the other messages
+		go func() {
+			report := sysinfo.Report(".") + "\n\n" + cameraReport(cameraStats{
+				cameraID:  cfg.DeviceID,
+				threshold: threshold,
+				started:   started,
+				frames:    frames.Load(),
+				alarms:    alarms.Load(),
+				lastFrame: lastFrame.Load(),
+				lastAlarm: lastAlarm.Load(),
+			})
+			if err := bot.SendMessage(report); err != nil {
+				fmt.Fprintln(os.Stderr, "info:", err)
+			}
+		}()
+	})
+
+	stream.AddHandler(func(_ image.Image, _ []image.Image, ts time.Time) {
+		frames.Add(1)
+		lastFrame.Store(ts.UnixNano())
+	})
 
 	stream.AddHandler(func(frame image.Image, _ []image.Image, ts time.Time) {
 		if !snapRequested.CompareAndSwap(true, false) {
@@ -164,6 +225,7 @@ func main() {
 		graph.Push(diff)
 		if diff >= threshold && ts.UnixNano()-lastAlarm.Load() > int64(alarmCooldown) {
 			lastAlarm.Store(ts.UnixNano())
+			alarms.Add(1)
 			caption := fmt.Sprintf("Alarm: motion detected at %s (difference %.4f)", ts.Format("15:04:05"), diff)
 			// encode now: the frames are only valid until this handler returns
 			animation, err := gif.Encode(append(history, frame), gifFrameDelay)
