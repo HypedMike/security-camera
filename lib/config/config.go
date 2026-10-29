@@ -4,7 +4,7 @@ package config
 import "time"
 
 // AlarmCooldown is the minimum time between two Telegram notifications.
-const AlarmCooldown = 30 * time.Second
+const AlarmCooldown = 5 * time.Second
 
 // AlarmDelay is how long the program waits after it detects motion before it
 // sends the alarm, so the GIF also shows what happens next: at the first

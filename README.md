@@ -11,7 +11,7 @@ It watches the camera, and when it sees motion above a threshold it sends a shor
 - **Motion detection**, with two interchangeable detectors (`DETECTOR` setting or `/detector` command):
   - `background` (default): learns what the empty scene looks like and alarms when a moving blob covers at least `BACKGROUND_THRESHOLD` of the frame. Picks up small or distant movement and ignores lights switching on.
   - `difference`: compares the last frames pixel by pixel and alarms when the average difference reaches `DIFFERENCE_THRESHOLD`.
-- **Telegram alerts**: the alarm is sent as a tiny, low quality animated GIF (about 5 s, 160x120) with a timestamp, the detector, its score and a code. Send `/hd <code>` to get the good quality version (640x480, dithered). The HD GIFs are saved in `gifs/`, at most 1 GB: past that the oldest are deleted and their code stops working. The alarm is sent 3 s after the motion is detected, so the GIF also shows what happens after the first detection. Alarms are rate-limited (30 s cooldown).
+- **Telegram alerts**: the alarm is sent as a tiny, low quality animated GIF (about 5 s, 160x120) with a timestamp, the detector, its score and a code. Send `/hd <code>` to get the good quality version (640x480, dithered). The HD GIFs are saved in `gifs/`, at most 1 GB: past that the oldest are deleted and their code stops working. The alarm is sent 3 s after the motion is detected, so the GIF also shows what happens after the first detection. Alarms are rate-limited (5 s cooldown).
 - **Telegram commands**, accepted only from the configured chat:
 
   | Command   | What it does                                          |
