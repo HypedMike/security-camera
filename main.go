@@ -126,7 +126,7 @@ func main() {
 		if graph != nil {
 			graph.Push(diff)
 		}
-		if diff >= threshold && ts.Sub(mon.LastAlarm()) > config.AlarmCooldown {
+		if !mon.Paused() && diff >= mon.Threshold() && ts.Sub(mon.LastAlarm()) > config.AlarmCooldown {
 			mon.Alarm(ts)
 			caption := fmt.Sprintf("Alarm: motion detected at %s (difference %.4f)", ts.Format("15:04:05"), diff)
 			// encode now: the frames are only valid until this handler returns

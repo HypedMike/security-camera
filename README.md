@@ -17,6 +17,9 @@ It watches the camera, and when the picture changes more than a threshold it sen
   | `/snap`   | Sends the next camera frame as a photo                |
   | `/info`   | Reports machine state (system) and camera/alarm state |
   | `/update` | Pulls the latest code, rebuilds and restarts          |
+  | `/pause`  | Stops sending alarms (the camera keeps running)       |
+  | `/resume` | Starts sending alarms again                           |
+  | `/threshold [value]` | Shows or changes the alarm threshold (0 to 1) until the next restart |
 
 - **Live graph** (optional): a web page at `http://localhost:8080` plotting the frame difference in real time, handy for tuning the threshold.
 - **Guided setup**: missing settings are asked for at startup and saved to `.env`; the camera is chosen interactively and remembered.

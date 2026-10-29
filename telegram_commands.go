@@ -3,7 +3,9 @@ package main
 import (
 	"context"
 	"fmt"
+	"math"
 	"os"
+	"strconv"
 	"sync/atomic"
 
 	"security_camera/lib/config"
@@ -26,6 +28,9 @@ type commandState struct {
 //
 //	/snap    sends the next camera frame as a photo
 //	/info    reports the state of the machine and of the program
+//	/pause   stops sending alarms
+//	/resume  starts sending alarms again
+//	/threshold [value]  shows or changes the alarm threshold
 //	/update  pulls, rebuilds and restarts the program
 //
 // cancel stops the stream, which is how /update makes main restart.
@@ -38,15 +43,40 @@ func initTelegramCommands(ctx context.Context, cancel context.CancelFunc, bot *t
 
 	var updating atomic.Bool
 
-	commands := map[string]func(){
-		"snap": func() { state.snapRequested.Store(true) },
+	commands := map[string]func(telegram.Message){
+		"snap": func(telegram.Message) { state.snapRequested.Store(true) },
 
-		"info": func() {
+		"info": func(telegram.Message) {
 			// the report takes a moment to measure, don't hold up the other messages
 			go reply("info", sysinfo.Report(".")+"\n\n"+mon.Report())
 		},
 
-		"update": func() {
+		"pause": func(telegram.Message) {
+			mon.SetPaused(true)
+			go reply("pause", "Alarms paused. Send /resume to turn them back on.")
+		},
+
+		"resume": func(telegram.Message) {
+			mon.SetPaused(false)
+			go reply("resume", "Alarms resumed.")
+		},
+
+		"threshold": func(m telegram.Message) {
+			args := m.Args()
+			if len(args) == 0 {
+				go reply("threshold", fmt.Sprintf("Alarm threshold is %g. Send /threshold <value> to change it.", mon.Threshold()))
+				return
+			}
+			t, err := strconv.ParseFloat(args[0], 64)
+			if err != nil || math.IsNaN(t) || t < 0 || t > 1 {
+				go reply("threshold", "Usage: /threshold <value between 0 and 1>, e.g. /threshold 0.05")
+				return
+			}
+			mon.SetThreshold(t)
+			go reply("threshold", fmt.Sprintf("Alarm threshold set to %g (until the next restart).", t))
+		},
+
+		"update": func(telegram.Message) {
 			if !updating.CompareAndSwap(false, true) {
 				return
 			}
@@ -68,7 +98,7 @@ func initTelegramCommands(ctx context.Context, cancel context.CancelFunc, bot *t
 
 	bot.AddListener(func(m telegram.Message) {
 		if run, ok := commands[m.Command()]; ok {
-			run()
+			run(m)
 		}
 	})
 }

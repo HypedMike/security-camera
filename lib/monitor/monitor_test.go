@@ -32,3 +32,25 @@ func TestMonitor(t *testing.T) {
 		}
 	}
 }
+
+func TestPauseAndThreshold(t *testing.T) {
+	m := New("", 0.05, 30*time.Second)
+	if m.Paused() || m.Threshold() != 0.05 {
+		t.Fatalf("initial state: paused=%v threshold=%v", m.Paused(), m.Threshold())
+	}
+	m.SetPaused(true)
+	m.SetThreshold(0.2)
+	if !m.Paused() || m.Threshold() != 0.2 {
+		t.Fatalf("after change: paused=%v threshold=%v", m.Paused(), m.Threshold())
+	}
+	r := m.Report()
+	for _, want := range []string{"alarm state: paused", "threshold: 0.2"} {
+		if !strings.Contains(r, want) {
+			t.Errorf("report misses %q:\n%s", want, r)
+		}
+	}
+	m.SetPaused(false)
+	if m.Paused() {
+		t.Error("still paused after resume")
+	}
+}
