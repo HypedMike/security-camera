@@ -24,6 +24,7 @@ It watches the camera, and when it sees motion above a threshold it sends a shor
   | `/resume` | Starts sending alarms again                           |
   | `/edit_config [json]` | Without arguments, sends all the settings as JSON (detector, thresholds, frame counts, cooldown, delay, GIF and snapshot quality). Followed by that JSON, changes them until the next restart; keys left out keep their value and nothing changes if any value is invalid |
 
+- **Daily "i'm alive" message**: every day at 9:00 (machine local time) the bot says it is running, how many alarms there were during the night, from 20:00 the evening before (or that there was no movement), and a suggestion based on today's forecast (for `WEATHER_LATITUDE`/`WEATHER_LONGITUDE`, Lucca if unset) and temperatures from [Open-Meteo](https://open-meteo.com/) (no key needed). On a sunny Sunday it adds a hike suggestion.
 - **Live graph** (optional): a web page at `http://localhost:8080` plotting the motion score in real time, handy for tuning the threshold.
 - **Guided setup**: missing settings are asked for at startup and saved to `.env`; the camera is chosen interactively and remembered.
 
@@ -93,7 +94,7 @@ To tune one, turn on `LIVE_STREAM_GRAPH`, watch the graph with the room still an
 go test ./...
 ```
 
-Layout: `main.go` wires everything; `telegram_commands.go` defines the bot commands; `lib/` holds the packages (`detection`, `streaming`, `monitor`, `telegram`, `my_video`, `gif`, `livegraph`, `sysinfo`, `update`, `env`, `config`).
+Layout: `main.go` wires everything; `telegram_commands.go` defines the bot commands; `lib/` holds the packages (`detection`, `streaming`, `monitor`, `telegram`, `my_video`, `gif`, `dailyreport`, `livegraph`, `sysinfo`, `update`, `env`, `config`).
 
 ## Security notes
 

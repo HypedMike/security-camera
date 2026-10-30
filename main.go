@@ -11,6 +11,7 @@ import (
 	"image/jpeg"
 	"maps"
 	"math"
+	"net/http"
 	"os"
 	"os/signal"
 	"slices"
@@ -19,6 +20,7 @@ import (
 	"time"
 
 	"security_camera/lib/config"
+	"security_camera/lib/dailyreport"
 	"security_camera/lib/detection"
 	"security_camera/lib/env"
 	"security_camera/lib/gif"
@@ -187,6 +189,10 @@ func main() {
 		}
 	}()
 
+	go dailyreport.Run(ctx, config.DailyReportHour, func(now time.Time) {
+		sendDailyReport(ctx, bot, mon, now)
+	})
+
 	// the camera is open and the stream is about to start
 	go func() {
 		host, _ := os.Hostname()
@@ -206,6 +212,45 @@ func main() {
 		fmt.Fprintln(os.Stderr, "restart:", err)
 		os.Exit(1)
 	}
+}
+
+// sendDailyReport sends the daily "i'm alive" message with the alarms of the
+// night, from NightStartHour of the previous evening until now. The weather is for WEATHER_LATITUDE and WEATHER_LONGITUDE, or
+// Lucca if they are not set; it is left out if the forecast can't be fetched.
+func sendDailyReport(ctx context.Context, bot *telegram.Bot, mon *monitor.Monitor, now time.Time) {
+	lat, lon := weatherCoordinates()
+	var weather *dailyreport.Weather
+	{
+		ctx, cancel := context.WithTimeout(ctx, 15*time.Second)
+		defer cancel()
+		w, err := dailyreport.FetchWeather(ctx, http.DefaultClient, "", lat, lon)
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "daily report:", err)
+		}
+		weather = w
+	}
+	nightStart := time.Date(now.Year(), now.Month(), now.Day()-1, config.NightStartHour, 0, 0, 0, now.Location())
+	msg := dailyreport.Compose(now, mon.AlarmsSince(nightStart), mon.Paused(), weather)
+	if err := bot.SendMessage(msg); err != nil {
+		fmt.Fprintln(os.Stderr, "daily report:", err)
+	}
+}
+
+// weatherCoordinates returns the coordinates in WEATHER_LATITUDE and
+// WEATHER_LONGITUDE, or those of Lucca if either is unset or not a valid
+// latitude/longitude.
+func weatherCoordinates() (lat, lon float64) {
+	latStr, lonStr := os.Getenv("WEATHER_LATITUDE"), os.Getenv("WEATHER_LONGITUDE")
+	if latStr == "" && lonStr == "" {
+		return config.DefaultLatitude, config.DefaultLongitude
+	}
+	lat, latErr := strconv.ParseFloat(latStr, 64)
+	lon, lonErr := strconv.ParseFloat(lonStr, 64)
+	if latErr != nil || lonErr != nil || math.Abs(lat) > 90 || math.Abs(lon) > 180 {
+		fmt.Fprintln(os.Stderr, "daily report: WEATHER_LATITUDE/WEATHER_LONGITUDE are not valid coordinates, using Lucca")
+		return config.DefaultLatitude, config.DefaultLongitude
+	}
+	return lat, lon
 }
 
 // sendAlarm sends the low quality GIF of the alarm with a code under it, and

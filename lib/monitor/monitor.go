@@ -25,7 +25,14 @@ type Monitor struct {
 
 	frames, alarms       atomic.Int64
 	lastFrame, lastAlarm atomic.Int64 // unix nanos, 0 if none yet
+
+	// histMu guards history, the times of the alarms of the last historyKept
+	histMu  sync.Mutex
+	history []time.Time
 }
+
+// historyKept is how long the time of an alarm is remembered by AlarmsSince.
+const historyKept = 48 * time.Hour
 
 // New starts a monitor. camera is the device id ("" for the default camera);
 // detector is the name of the motion detector in use and thresholds the
@@ -120,6 +127,29 @@ func (m *Monitor) Frame(ts time.Time) {
 func (m *Monitor) Alarm(ts time.Time) {
 	m.alarms.Add(1)
 	m.lastAlarm.Store(ts.UnixNano())
+
+	m.histMu.Lock()
+	defer m.histMu.Unlock()
+	m.history = append(m.history, ts)
+	i := 0
+	for i < len(m.history) && ts.Sub(m.history[i]) > historyKept {
+		i++
+	}
+	m.history = m.history[i:]
+}
+
+// AlarmsSince returns the times of the alarms raised after t, oldest first.
+// Only the last 48 hours are remembered.
+func (m *Monitor) AlarmsSince(t time.Time) []time.Time {
+	m.histMu.Lock()
+	defer m.histMu.Unlock()
+	var out []time.Time
+	for _, a := range m.history {
+		if a.After(t) {
+			out = append(out, a)
+		}
+	}
+	return out
 }
 
 // LastAlarm returns when the last alarm was raised, or the zero time if none was.

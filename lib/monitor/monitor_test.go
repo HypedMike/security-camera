@@ -78,3 +78,18 @@ func TestCooldownAndThresholdOf(t *testing.T) {
 		t.Errorf("cooldown %v, background %v, in use %v", m.Cooldown(), m.ThresholdOf("background"), m.Threshold())
 	}
 }
+
+func TestAlarmsSince(t *testing.T) {
+	m := New("", "difference", map[string]float64{"difference": 0.05}, time.Second)
+	now := time.Now()
+	m.Alarm(now.Add(-60 * time.Hour))
+	m.Alarm(now.Add(-30 * time.Hour))
+	m.Alarm(now.Add(-2 * time.Hour))
+	m.Alarm(now)
+	if got := m.AlarmsSince(now.Add(-24 * time.Hour)); len(got) != 2 {
+		t.Errorf("last day: %d alarms, want 2", len(got))
+	}
+	if got := m.AlarmsSince(now.Add(-100 * time.Hour)); len(got) != 3 {
+		t.Errorf("old alarms are kept: %d alarms, want 3", len(got))
+	}
+}
