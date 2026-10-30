@@ -11,6 +11,7 @@ import (
 	"image/jpeg"
 	"maps"
 	"math"
+	"net/http"
 	"os"
 	"os/signal"
 	"slices"
@@ -19,6 +20,7 @@ import (
 	"time"
 
 	"security_camera/lib/config"
+	"security_camera/lib/dailyreport"
 	"security_camera/lib/detection"
 	"security_camera/lib/env"
 	"security_camera/lib/gif"
@@ -187,6 +189,10 @@ func main() {
 		}
 	}()
 
+	go dailyreport.Run(ctx, config.DailyReportHour, func(now time.Time) {
+		sendDailyReport(ctx, bot, mon, now)
+	})
+
 	// the camera is open and the stream is about to start
 	go func() {
 		host, _ := os.Hostname()
@@ -205,6 +211,28 @@ func main() {
 		err := update.Restart()
 		fmt.Fprintln(os.Stderr, "restart:", err)
 		os.Exit(1)
+	}
+}
+
+// sendDailyReport sends the daily "i'm alive" message with the alarms of the
+// last 24 hours. The weather part is left out if WEATHER_LATITUDE and
+// WEATHER_LONGITUDE are not set or the forecast can't be fetched.
+func sendDailyReport(ctx context.Context, bot *telegram.Bot, mon *monitor.Monitor, now time.Time) {
+	var weather *dailyreport.Weather
+	lat, latErr := strconv.ParseFloat(os.Getenv("WEATHER_LATITUDE"), 64)
+	lon, lonErr := strconv.ParseFloat(os.Getenv("WEATHER_LONGITUDE"), 64)
+	if latErr == nil && lonErr == nil {
+		ctx, cancel := context.WithTimeout(ctx, 15*time.Second)
+		defer cancel()
+		w, err := dailyreport.FetchWeather(ctx, http.DefaultClient, "", lat, lon)
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "daily report:", err)
+		}
+		weather = w
+	}
+	msg := dailyreport.Compose(now, mon.AlarmsSince(now.Add(-24*time.Hour)), mon.Paused(), weather)
+	if err := bot.SendMessage(msg); err != nil {
+		fmt.Fprintln(os.Stderr, "daily report:", err)
 	}
 }
 

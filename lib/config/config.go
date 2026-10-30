@@ -53,6 +53,10 @@ const GIFDir = "gifs"
 // (1 GB). Past it the oldest GIFs are deleted.
 const GIFStorageLimit = 1 << 30
 
+// DailyReportHour is the hour (local time, 0-23) the daily "i'm alive"
+// message is sent at.
+const DailyReportHour = 20
+
 // CameraChoiceTimeout is how long the camera prompt waits before using the first camera.
 const CameraChoiceTimeout = 5 * time.Second
 
