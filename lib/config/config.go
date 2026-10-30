@@ -55,7 +55,11 @@ const GIFStorageLimit = 1 << 30
 
 // DailyReportHour is the hour (local time, 0-23) the daily "i'm alive"
 // message is sent at.
-const DailyReportHour = 20
+const DailyReportHour = 9
+
+// NightStartHour is the hour (local time, 0-23) the night starts at: the
+// daily message counts the alarms since then on the previous evening.
+const NightStartHour = 20
 
 // DefaultLatitude and DefaultLongitude are the coordinates of Lucca, used for
 // the weather in the daily message when WEATHER_LATITUDE and

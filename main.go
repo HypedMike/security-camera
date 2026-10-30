@@ -215,7 +215,7 @@ func main() {
 }
 
 // sendDailyReport sends the daily "i'm alive" message with the alarms of the
-// last 24 hours. The weather is for WEATHER_LATITUDE and WEATHER_LONGITUDE, or
+// night, from NightStartHour of the previous evening until now. The weather is for WEATHER_LATITUDE and WEATHER_LONGITUDE, or
 // Lucca if they are not set; it is left out if the forecast can't be fetched.
 func sendDailyReport(ctx context.Context, bot *telegram.Bot, mon *monitor.Monitor, now time.Time) {
 	lat, lon := weatherCoordinates()
@@ -229,7 +229,8 @@ func sendDailyReport(ctx context.Context, bot *telegram.Bot, mon *monitor.Monito
 		}
 		weather = w
 	}
-	msg := dailyreport.Compose(now, mon.AlarmsSince(now.Add(-24*time.Hour)), mon.Paused(), weather)
+	nightStart := time.Date(now.Year(), now.Month(), now.Day()-1, config.NightStartHour, 0, 0, 0, now.Location())
+	msg := dailyreport.Compose(now, mon.AlarmsSince(nightStart), mon.Paused(), weather)
 	if err := bot.SendMessage(msg); err != nil {
 		fmt.Fprintln(os.Stderr, "daily report:", err)
 	}
