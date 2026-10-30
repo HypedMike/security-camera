@@ -215,13 +215,12 @@ func main() {
 }
 
 // sendDailyReport sends the daily "i'm alive" message with the alarms of the
-// last 24 hours. The weather part is left out if WEATHER_LATITUDE and
-// WEATHER_LONGITUDE are not set or the forecast can't be fetched.
+// last 24 hours. The weather is for WEATHER_LATITUDE and WEATHER_LONGITUDE, or
+// Lucca if they are not set; it is left out if the forecast can't be fetched.
 func sendDailyReport(ctx context.Context, bot *telegram.Bot, mon *monitor.Monitor, now time.Time) {
+	lat, lon := weatherCoordinates()
 	var weather *dailyreport.Weather
-	lat, latErr := strconv.ParseFloat(os.Getenv("WEATHER_LATITUDE"), 64)
-	lon, lonErr := strconv.ParseFloat(os.Getenv("WEATHER_LONGITUDE"), 64)
-	if latErr == nil && lonErr == nil {
+	{
 		ctx, cancel := context.WithTimeout(ctx, 15*time.Second)
 		defer cancel()
 		w, err := dailyreport.FetchWeather(ctx, http.DefaultClient, "", lat, lon)
@@ -234,6 +233,23 @@ func sendDailyReport(ctx context.Context, bot *telegram.Bot, mon *monitor.Monito
 	if err := bot.SendMessage(msg); err != nil {
 		fmt.Fprintln(os.Stderr, "daily report:", err)
 	}
+}
+
+// weatherCoordinates returns the coordinates in WEATHER_LATITUDE and
+// WEATHER_LONGITUDE, or those of Lucca if either is unset or not a valid
+// latitude/longitude.
+func weatherCoordinates() (lat, lon float64) {
+	latStr, lonStr := os.Getenv("WEATHER_LATITUDE"), os.Getenv("WEATHER_LONGITUDE")
+	if latStr == "" && lonStr == "" {
+		return config.DefaultLatitude, config.DefaultLongitude
+	}
+	lat, latErr := strconv.ParseFloat(latStr, 64)
+	lon, lonErr := strconv.ParseFloat(lonStr, 64)
+	if latErr != nil || lonErr != nil || math.Abs(lat) > 90 || math.Abs(lon) > 180 {
+		fmt.Fprintln(os.Stderr, "daily report: WEATHER_LATITUDE/WEATHER_LONGITUDE are not valid coordinates, using Lucca")
+		return config.DefaultLatitude, config.DefaultLongitude
+	}
+	return lat, lon
 }
 
 // sendAlarm sends the low quality GIF of the alarm with a code under it, and

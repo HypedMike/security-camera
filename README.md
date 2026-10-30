@@ -24,7 +24,7 @@ It watches the camera, and when it sees motion above a threshold it sends a shor
   | `/resume` | Starts sending alarms again                           |
   | `/edit_config [json]` | Without arguments, sends all the settings as JSON (detector, thresholds, frame counts, cooldown, delay, GIF and snapshot quality). Followed by that JSON, changes them until the next restart; keys left out keep their value and nothing changes if any value is invalid |
 
-- **Daily "i'm alive" message**: every day at 20:00 (machine local time) the bot says it is running, how many alarms there were in the last 24 hours (or that there was no movement), and, if `WEATHER_LATITUDE` and `WEATHER_LONGITUDE` are set, a suggestion based on today's forecast and temperatures from [Open-Meteo](https://open-meteo.com/) (no key needed). On a sunny Sunday it adds a hike suggestion.
+- **Daily "i'm alive" message**: every day at 20:00 (machine local time) the bot says it is running, how many alarms there were in the last 24 hours (or that there was no movement), and a suggestion based on today's forecast (for `WEATHER_LATITUDE`/`WEATHER_LONGITUDE`, Lucca if unset) and temperatures from [Open-Meteo](https://open-meteo.com/) (no key needed). On a sunny Sunday it adds a hike suggestion.
 - **Live graph** (optional): a web page at `http://localhost:8080` plotting the motion score in real time, handy for tuning the threshold.
 - **Guided setup**: missing settings are asked for at startup and saved to `.env`; the camera is chosen interactively and remembered.
 
