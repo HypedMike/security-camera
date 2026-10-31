@@ -5,3 +5,15 @@ version = 4
 [[package]]
 name = "detection"
 version = "0.1.0"
+
+[[package]]
+name = "gif"
+version = "0.1.0"
+
+[[package]]
+name = "native"
+version = "0.1.0"
+dependencies = [
+ "detection",
+ "gif",
+]

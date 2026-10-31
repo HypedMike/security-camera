@@ -9,13 +9,35 @@ import (
 	"image/draw"
 	stdgif "image/gif"
 	"sync"
+	"sync/atomic"
 )
+
+// useRust is set by UseRust.
+var useRust atomic.Bool
+
+// UseRust picks the implementation of Shrink and Encode: the one in Rust
+// (rust-lib/gif/) or, by default, the one in Go. They give the same pictures.
+// It fails in a build without -tags rust.
+func UseRust(on bool) error {
+	if on && !RustAvailable {
+		return errors.New("gif: this build has no Rust encoder (build with -tags rust)")
+	}
+	useRust.Store(on)
+	return nil
+}
 
 // Encode builds an animated GIF from images. delay is the pause between
 // frames in hundredths of a second (e.g. 10 = 100ms). dither spreads the
 // palette error over neighbouring pixels: smoother colours, but the noise
 // compresses badly and the file gets bigger.
 func Encode(images []image.Image, delay int, dither bool) ([]byte, error) {
+	if useRust.Load() {
+		return encodeRust(images, delay, dither)
+	}
+	return encodeGo(images, delay, dither)
+}
+
+func encodeGo(images []image.Image, delay int, dither bool) ([]byte, error) {
 	if len(images) == 0 {
 		return nil, errors.New("gif: no images")
 	}
@@ -52,7 +74,11 @@ func Encode(images []image.Image, delay int, dither bool) ([]byte, error) {
 func Shrink(images []image.Image, width int) []image.Image {
 	out := make([]image.Image, len(images))
 	for i, img := range images {
-		out[i] = shrink(img, width)
+		if useRust.Load() {
+			out[i] = shrinkRust(img, width)
+		} else {
+			out[i] = shrink(img, width)
+		}
 	}
 	return out
 }

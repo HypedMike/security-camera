@@ -17,13 +17,13 @@ if ! command -v gcc >/dev/null || [ ! -f /usr/include/linux/videodev2.h ]; then
 	exit 1
 fi
 
-# the optional background-rust detector needs Rust (https://rustup.rs)
+# the optional background-rust detector and the Rust GIF encoder need Rust (https://rustup.rs)
 tags=""
 if command -v cargo >/dev/null; then
-	(cd rust-lib/detection && cargo build --release)
+	(cd rust-lib && cargo build --release)
 	tags="rust"
 else
-	echo "cargo not found: building without the background-rust detector"
+	echo "cargo not found: building without the background-rust detector and the Rust GIF encoder"
 fi
 
 CGO_ENABLED=1 go build -tags "$tags" -o securitycamera .

@@ -3,8 +3,6 @@
 package detection
 
 /*
-#cgo LDFLAGS: -L${SRCDIR}/../../rust-lib/detection/target/release -ldetection
-#cgo linux LDFLAGS: -lm -ldl -lpthread
 #include <stdint.h>
 #include <stddef.h>
 
@@ -22,6 +20,8 @@ import (
 	"image/draw"
 	"runtime"
 	"unsafe"
+
+	_ "security_camera/lib/native"
 )
 
 // RustAvailable reports whether this binary was built with the Rust

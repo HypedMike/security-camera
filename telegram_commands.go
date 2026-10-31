@@ -10,6 +10,7 @@ import (
 	"strings"
 	"sync/atomic"
 
+	"security_camera/lib/alarmqueue"
 	"security_camera/lib/config"
 	"security_camera/lib/detection"
 	"security_camera/lib/gif"
@@ -19,6 +20,9 @@ import (
 	"security_camera/lib/telegram"
 	"security_camera/lib/update"
 )
+
+// queueShown is how many alarms /queue lists.
+const queueShown = 10
 
 // commandState is what the Telegram commands hand over to the main loop.
 type commandState struct {
@@ -36,11 +40,12 @@ type commandState struct {
 //	/pause   stops sending alarms
 //	/resume  starts sending alarms again
 //	/edit_config [json]  sends all the settings as JSON, or changes them to the JSON that follows
+//	/queue   lists the latest alarms: sent (and when), waiting or still being processed
 //	/hd <code>   sends the HD version of the alarm GIF with that code
 //	/update  pulls, rebuilds and restarts the program
 //
 // cancel stops the stream, which is how /update makes main restart.
-func initTelegramCommands(ctx context.Context, cancel context.CancelFunc, bot *telegram.Bot, mon *monitor.Monitor, stream *streaming.Stream, detectors map[string]detection.Detector, gifs *gif.Store, live *config.Live, state *commandState) {
+func initTelegramCommands(ctx context.Context, cancel context.CancelFunc, bot *telegram.Bot, mon *monitor.Monitor, stream *streaming.Stream, detectors map[string]detection.Detector, gifs *gif.Store, live *config.Live, alarms *alarmqueue.Queue, state *commandState) {
 	reply := func(command, text string) {
 		if err := bot.SendMessage(text); err != nil {
 			fmt.Fprintf(os.Stderr, "%s: %v\n", command, err)
@@ -78,6 +83,10 @@ func initTelegramCommands(ctx context.Context, cancel context.CancelFunc, bot *t
 				return
 			}
 			go reply("edit_config", "Settings changed (until the next restart):\n"+configJSON(currentConfig(mon, stream, live)))
+		},
+
+		"queue": func(telegram.Message) {
+			go reply("queue", alarms.Report(queueShown))
 		},
 
 		"hd": func(m telegram.Message) {

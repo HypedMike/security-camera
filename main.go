@@ -19,6 +19,7 @@ import (
 	"strings"
 	"time"
 
+	"security_camera/lib/alarmqueue"
 	"security_camera/lib/config"
 	"security_camera/lib/dailyreport"
 	"security_camera/lib/detection"
@@ -74,6 +75,15 @@ func main() {
 	}
 	detectorName := cmp.Or(os.Getenv("DETECTOR"), config.DefaultDetector)
 
+	switch enc := strings.ToLower(cmp.Or(os.Getenv("GIF_ENCODER"), "go")); enc {
+	case "go", "rust":
+		if err := gif.UseRust(enc == "rust"); err != nil {
+			panic(fmt.Errorf("GIF_ENCODER: %w", err))
+		}
+	default:
+		panic(fmt.Errorf("GIF_ENCODER: unknown encoder %q, use go or rust", enc))
+	}
+
 	cfg := my_video.DefaultConfig
 	if cfg.DeviceID, err = my_video.Pick(*fetchCamera); err != nil {
 		panic(err)
@@ -124,8 +134,12 @@ func main() {
 	}
 
 	live := config.NewLive()
+
+	// the alarm messages go out through this queue, at most so many a minute
+	alarms := alarmqueue.New(envPositiveInt("TELEGRAM_MESSAGES_PER_MINUTE", config.TelegramMessagesPerMinute))
+	go alarms.Run(ctx)
 	var cmds commandState
-	initTelegramCommands(ctx, cancel, bot, mon, stream, detectors, gifs, live, &cmds)
+	initTelegramCommands(ctx, cancel, bot, mon, stream, detectors, gifs, live, alarms, &cmds)
 
 	stream.AddHandler(func(_ image.Image, _ []image.Image, ts time.Time) {
 		mon.Frame(ts)
@@ -157,6 +171,9 @@ func main() {
 		if name := mon.Detector(); detector == nil || detector.Name() != name {
 			detector = detectors[name]
 			detector.Reset()
+			if alarm != nil {
+				alarm.queued.Cancel("detector changed")
+			}
 			alarm = nil
 		}
 		score, err := detector.Score(frame, history)
@@ -174,7 +191,8 @@ func main() {
 			}
 			// the motion has only just started: wait AlarmDelay and send the
 			// GIF then, so it also covers what comes after the detection
-			alarm = &pendingAlarm{at: ts, due: ts.Add(live.Get().AlarmDelay), detector: detector.Name(), score: score}
+			alarm = &pendingAlarm{at: ts, due: ts.Add(live.Get().AlarmDelay), detector: detector.Name(), score: score,
+				queued: alarms.Begin(ts, detector.Name(), score)}
 		}
 		if alarm != nil && !ts.Before(alarm.due) {
 			a := alarm
@@ -185,7 +203,9 @@ func main() {
 				// and Shrink copies them
 				v := live.Get()
 				hdFrames := gif.Shrink(everyNth(lastFrames(history, frame, mon.GIFFrames()), v.HDGIFFrameStep), v.HDGIFWidth)
-				go sendAlarm(bot, gifs, hdFrames, caption, v)
+				go sendAlarm(bot, a.queued, gifs, hdFrames, caption, v)
+			} else {
+				a.queued.Cancel("paused")
 			}
 		}
 		if printDiffs {
@@ -263,18 +283,17 @@ func weatherCoordinates() (lat, lon float64) {
 	return lat, lon
 }
 
-// sendAlarm sends the low quality GIF of the alarm with a code under it, and
-// saves the HD one in gifs under that code for /hd. Without a store, or if
-// the HD GIF can't be made or saved, the code is left out. hdFrames are the
+// sendAlarm makes the low quality GIF of the alarm with a code under it, and
+// saves the HD one in gifs under that code for /hd, then hands the message to
+// the queue. Without a store, or if the HD GIF can't be made or saved, the
+// code is left out. hdFrames are the
 // frames of the HD GIF.
-func sendAlarm(bot *telegram.Bot, gifs *gif.Store, hdFrames []image.Image, caption string, v config.Values) {
+func sendAlarm(bot *telegram.Bot, queued *alarmqueue.Alarm, gifs *gif.Store, hdFrames []image.Image, caption string, v config.Values) {
 	lowFrames := gif.Shrink(everyNth(hdFrames, v.LowGIFFrameStep), v.LowGIFWidth)
 	low, err := gif.Encode(lowFrames, v.LowGIFFrameDelay, false)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "gif:", err)
-		if err = bot.SendMessage(caption); err != nil {
-			fmt.Fprintln(os.Stderr, err)
-		}
+		queued.Ready(func() error { return bot.SendMessage(caption) })
 		return
 	}
 
@@ -286,9 +305,7 @@ func sendAlarm(bot *telegram.Bot, gifs *gif.Store, hdFrames []image.Image, capti
 			caption += fmt.Sprintf("\nHD version: /hd %s", code)
 		}
 	}
-	if err := bot.SendAnimation(low, caption); err != nil {
-		fmt.Fprintln(os.Stderr, err)
-	}
+	queued.Ready(func() error { return bot.SendAnimation(low, caption) })
 }
 
 // saveHD encodes frames as the HD GIF and saves it, returning its code.
@@ -309,6 +326,21 @@ type pendingAlarm struct {
 	at, due  time.Time
 	detector string
 	score    float64
+	queued   *alarmqueue.Alarm
+}
+
+// envPositiveInt returns the whole number, at least 1, in the variable key,
+// or def if it is not set.
+func envPositiveInt(key string, def int) int {
+	v := os.Getenv(key)
+	if v == "" {
+		return def
+	}
+	n, err := strconv.Atoi(strings.TrimSpace(v))
+	if err != nil || n < 1 {
+		panic(fmt.Errorf("%s: %q is not a whole number of at least 1", key, v))
+	}
+	return n
 }
 
 // envThreshold returns the alarm threshold in the variable key, or def if it
