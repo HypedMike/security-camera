@@ -1,0 +1,13 @@
+[package]
+name = "native"
+version = "0.1.0"
+edition = "2024"
+
+# The one static library the Go program links: two Rust static libraries in
+# one binary each bring their own copy of the Rust runtime and can clash.
+[lib]
+crate-type = ["staticlib"]
+
+[dependencies]
+detection = { path = "../detection" }
+gif = { path = "../gif" }

@@ -6,6 +6,10 @@ import (
 	"time"
 )
 
+// TelegramMessagesPerMinute is the default most alarm messages sent to
+// Telegram in a minute (TELEGRAM_MESSAGES_PER_MINUTE).
+const TelegramMessagesPerMinute = 2
+
 // AlarmCooldown is the minimum time between two Telegram notifications.
 const AlarmCooldown = 5 * time.Second
 

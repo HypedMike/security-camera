@@ -8,16 +8,18 @@ It watches the camera, and when it sees motion above a threshold it sends a shor
 
 ## Features
 
-- **Motion detection**, with two interchangeable detectors (`DETECTOR` setting or `detector` in `/edit_config`):
+- **Motion detection**, with interchangeable detectors (`DETECTOR` setting or `detector` in `/edit_config`):
   - `background` (default): learns what the empty scene looks like and alarms when a moving blob covers at least `BACKGROUND_THRESHOLD` of the frame. Picks up small or distant movement and ignores lights switching on.
   - `difference`: compares the last frames pixel by pixel and alarms when the average difference reaches `DIFFERENCE_THRESHOLD`.
-- **Telegram alerts**: the alarm is sent as a tiny, low quality animated GIF (about 5 s, 160x120) with a timestamp, the detector, its score and a code. Send `/hd <code>` to get the good quality version (640x480, dithered). The HD GIFs are saved in `gifs/`, at most 1 GB: past that the oldest are deleted and their code stops working. The alarm is sent 3 s after the motion is detected, so the GIF also shows what happens after the first detection. Alarms are rate-limited (5 s cooldown).
+  - `background-rust`: the same algorithm as `background`, written in Rust ([`rust-lib/detection/`](rust-lib/detection/)) and about 2x faster. Only in builds made with `-tags rust` (`./build_linux` and `./build_macos` do it when `cargo` is installed). Its threshold is `BACKGROUND_RUST_THRESHOLD` (default: the `background` one) or `background_rust_threshold` in `/edit_config`.
+- **Telegram alerts**: the alarm is sent as a tiny, low quality animated GIF (about 5 s, 160x120) with a timestamp, the detector, its score and a code. Send `/hd <code>` to get the good quality version (640x480, dithered). The HD GIFs are saved in `gifs/`, at most 1 GB: past that the oldest are deleted and their code stops working. The alarm is sent 3 s after the motion is detected, so the GIF also shows what happens after the first detection. Alarms are rate-limited (5 s cooldown), and the alarm messages go out through a queue that sends at most `TELEGRAM_MESSAGES_PER_MINUTE` (default 2) per minute, so a burst of motion does not flood the chat.
 - **Telegram commands**, accepted only from the configured chat:
 
   | Command   | What it does                                          |
   |-----------|-------------------------------------------------------|
   | `/snap`   | Sends the next camera frame as a photo                |
   | `/info`   | Reports machine state (system) and camera/alarm state |
+  | `/queue`  | Lists the latest 10 alarms: sent (and when), waiting in the queue or still being processed |
   | `/hd <code>` | Sends the HD version of the alarm GIF with that code |
   | `/update` | Pulls the latest code, rebuilds and restarts          |
   | `/pause`  | Stops sending alarms (the camera keeps running)       |
@@ -68,11 +70,14 @@ Settings live in `.env` (see [`.env.example`](.env.example)).
 | `TELEGRAM_BOT_TOKEN`      | yes      | Bot token from @BotFather                                           |
 | `TELEGRAM_CHAT_ID`        | yes      | Chat the bot talks to; messages from other chats are ignored        |
 | `DETECTOR`                | no       | Motion detector: `background` (default) or `difference`             |
+| `GIF_ENCODER`             | no       | Who shrinks and encodes the alarm GIFs: `go` (default) or `rust`, about 1.5x faster, 3x with `hd_gif_dither`; needs a build with the Rust library |
 | `BACKGROUND_THRESHOLD`    | no       | Blob area (0 to 1) at or above which the background detector alarms, default `0.003` |
 | `DIFFERENCE_THRESHOLD`    | no       | Frame difference (0 to 1) at or above which the difference detector alarms, default `0.05` (the old name `ALARM_THRESHOLD` still works) |
 | `CAMERA_ID`               | no       | Camera to use; chosen and saved on first run                        |
 | `LIVE_STREAM_GRAPH`       | no       | `1`/`true` serves the live graph on port 8080                       |
 | `PRINT_DIFFERENCES`       | no       | Print every frame's motion score to the console                     |
+| `TELEGRAM_MESSAGES_PER_MINUTE` | no  | Most alarm messages sent to Telegram per minute, default `2`; the others wait in the queue, see `/queue` |
+| `PRINT_ALARMS`            | no       | Print a line to the console whenever an alarm is set off            |
 | `PRINT_TELEGRAM_MESSAGES` | no       | Print every Telegram message received from the chat                 |
 
 Flag: `-fetch-camera` lists the cameras again and lets you choose a different one.
@@ -92,6 +97,12 @@ To tune one, turn on `LIVE_STREAM_GRAPH`, watch the graph with the room still an
 
 ```bash
 go test ./...
+
+# with the Rust detector
+(cd rust-lib && cargo build --release) && go test -tags rust ./...
+
+# benchmark the Go and Rust GIF encoders
+go test -tags rust ./lib/gif -run xxx -bench .
 ```
 
 Layout: `main.go` wires everything; `telegram_commands.go` defines the bot commands; `lib/` holds the packages (`detection`, `streaming`, `monitor`, `telegram`, `my_video`, `gif`, `dailyreport`, `livegraph`, `sysinfo`, `update`, `env`, `config`).

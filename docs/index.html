@@ -61,6 +61,7 @@
       <tr><th>Command</th><th>Description</th></tr>
       <tr><td><code>/snap</code></td><td>Sends the next camera frame as a photo</td></tr>
       <tr><td><code>/info</code></td><td>Reports machine state and camera/alarm state</td></tr>
+      <tr><td><code>/queue</code></td><td>Lists the latest 10 alarms: sent (and when), waiting or still being processed</td></tr>
       <tr><td><code>/hd &lt;code&gt;</code></td><td>Sends the HD version of the alarm GIF with that code</td></tr>
       <tr><td><code>/update</code></td><td>Pulls the latest code, rebuilds and restarts</td></tr>
       <tr><td><code>/pause</code></td><td>Stops sending alarms</td></tr>
@@ -86,12 +87,15 @@ cd security-camera
       <tr><th>Variable</th><th>Description</th></tr>
       <tr><td><code>TELEGRAM_BOT_TOKEN</code></td><td>Bot token (required)</td></tr>
       <tr><td><code>TELEGRAM_CHAT_ID</code></td><td>Chat the bot talks to (required)</td></tr>
+      <tr><td><code>GIF_ENCODER</code></td><td>Alarm GIF encoder: <code>go</code> (default) or <code>rust</code> (faster, needs the Rust build)</td></tr>
       <tr><td><code>DETECTOR</code></td><td>Motion detector: <code>background</code> (default) or <code>difference</code></td></tr>
       <tr><td><code>BACKGROUND_THRESHOLD</code></td><td>Moving blob area from 0 to 1 that triggers an alarm, default <code>0.003</code></td></tr>
       <tr><td><code>DIFFERENCE_THRESHOLD</code></td><td>Frame difference from 0 to 1 that triggers an alarm, default <code>0.05</code> (formerly <code>ALARM_THRESHOLD</code>)</td></tr>
       <tr><td><code>CAMERA_ID</code></td><td>Camera to use; saved on first run</td></tr>
       <tr><td><code>LIVE_STREAM_GRAPH</code></td><td>Serve the live graph on port 8080</td></tr>
       <tr><td><code>PRINT_DIFFERENCES</code></td><td>Log each frame's motion score</td></tr>
+      <tr><td><code>TELEGRAM_MESSAGES_PER_MINUTE</code></td><td>Most alarm messages sent to Telegram per minute, default <code>2</code></td></tr>
+      <tr><td><code>PRINT_ALARMS</code></td><td>Log each alarm that is set off</td></tr>
     </table></div>
   </section>
 
