@@ -1,4 +1,4 @@
-use detection_lib::{Background, Frame};
+use detection::{Background, Frame};
 use std::time::Instant;
 
 fn main() {

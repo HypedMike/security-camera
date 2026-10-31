@@ -3,7 +3,7 @@
 package detection
 
 /*
-#cgo LDFLAGS: -L${SRCDIR}/../../detection-lib/target/release -ldetection_lib
+#cgo LDFLAGS: -L${SRCDIR}/../../rust-lib/detection/target/release -ldetection
 #cgo linux LDFLAGS: -lm -ldl -lpthread
 #include <stdint.h>
 #include <stddef.h>
@@ -29,7 +29,7 @@ import (
 const RustAvailable = true
 
 // BackgroundRust is Background (same algorithm and defaults) implemented in
-// Rust, see detection-lib/.
+// Rust, see rust-lib/detection/.
 type BackgroundRust struct {
 	bg unsafe.Pointer
 }

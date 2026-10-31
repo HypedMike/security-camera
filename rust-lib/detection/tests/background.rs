@@ -1,4 +1,4 @@
-use detection_lib::{Background, Frame};
+use detection::{Background, Frame};
 
 struct Rng(u64);
 impl Rng {

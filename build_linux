@@ -20,7 +20,7 @@ fi
 # the optional background-rust detector needs Rust (https://rustup.rs)
 tags=""
 if command -v cargo >/dev/null; then
-	(cd detection-lib && cargo build --release)
+	(cd rust-lib/detection && cargo build --release)
 	tags="rust"
 else
 	echo "cargo not found: building without the background-rust detector"

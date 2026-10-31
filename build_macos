@@ -17,7 +17,7 @@ fi
 # the Xcode command line tools, for the C linker
 tags=""
 if command -v cargo >/dev/null && xcode-select -p >/dev/null 2>&1; then
-	(cd detection-lib && cargo build --release)
+	(cd rust-lib/detection && cargo build --release)
 	tags="rust"
 else
 	echo "cargo or the Xcode command line tools (xcode-select --install) not found: building without the background-rust detector"
