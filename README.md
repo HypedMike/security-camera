@@ -8,9 +8,10 @@ It watches the camera, and when it sees motion above a threshold it sends a shor
 
 ## Features
 
-- **Motion detection**, with two interchangeable detectors (`DETECTOR` setting or `detector` in `/edit_config`):
+- **Motion detection**, with interchangeable detectors (`DETECTOR` setting or `detector` in `/edit_config`):
   - `background` (default): learns what the empty scene looks like and alarms when a moving blob covers at least `BACKGROUND_THRESHOLD` of the frame. Picks up small or distant movement and ignores lights switching on.
   - `difference`: compares the last frames pixel by pixel and alarms when the average difference reaches `DIFFERENCE_THRESHOLD`.
+  - `background-rust`: the same algorithm as `background`, written in Rust ([`detection-lib/`](detection-lib/)) and about 2x faster. Only in builds made with `-tags rust` (`./build_linux` does it when `cargo` is installed). Its threshold is `BACKGROUND_RUST_THRESHOLD` (default: the `background` one) or `background_rust_threshold` in `/edit_config`.
 - **Telegram alerts**: the alarm is sent as a tiny, low quality animated GIF (about 5 s, 160x120) with a timestamp, the detector, its score and a code. Send `/hd <code>` to get the good quality version (640x480, dithered). The HD GIFs are saved in `gifs/`, at most 1 GB: past that the oldest are deleted and their code stops working. The alarm is sent 3 s after the motion is detected, so the GIF also shows what happens after the first detection. Alarms are rate-limited (5 s cooldown).
 - **Telegram commands**, accepted only from the configured chat:
 
@@ -92,6 +93,9 @@ To tune one, turn on `LIVE_STREAM_GRAPH`, watch the graph with the room still an
 
 ```bash
 go test ./...
+
+# with the Rust detector
+(cd detection-lib && cargo build --release) && go test -tags rust ./...
 ```
 
 Layout: `main.go` wires everything; `telegram_commands.go` defines the bot commands; `lib/` holds the packages (`detection`, `streaming`, `monitor`, `telegram`, `my_video`, `gif`, `dailyreport`, `livegraph`, `sysinfo`, `update`, `env`, `config`).

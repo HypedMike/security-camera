@@ -23,7 +23,9 @@ type editableConfig struct {
 	Detector            string  `json:"detector"`
 	BackgroundThreshold float64 `json:"background_threshold"`
 	DifferenceThreshold float64 `json:"difference_threshold"`
-	Paused              bool    `json:"paused"`
+	// BackgroundRustThreshold only matters in builds with -tags rust
+	BackgroundRustThreshold float64 `json:"background_rust_threshold"`
+	Paused                  bool    `json:"paused"`
 
 	StackFrames     int `json:"stack_frames"`
 	DetectionFrames int `json:"detection_frames"`
@@ -48,10 +50,11 @@ type editableConfig struct {
 func currentConfig(mon *monitor.Monitor, stream *streaming.Stream, live *config.Live) editableConfig {
 	v := live.Get()
 	return editableConfig{
-		Detector:            mon.Detector(),
-		BackgroundThreshold: mon.ThresholdOf(detection.NameBackground),
-		DifferenceThreshold: mon.ThresholdOf(detection.NameDifference),
-		Paused:              mon.Paused(),
+		Detector:                mon.Detector(),
+		BackgroundThreshold:     mon.ThresholdOf(detection.NameBackground),
+		DifferenceThreshold:     mon.ThresholdOf(detection.NameDifference),
+		BackgroundRustThreshold: mon.ThresholdOf(detection.NameBackgroundRust),
+		Paused:                  mon.Paused(),
 
 		StackFrames:     stream.History(),
 		DetectionFrames: mon.DetectionFrames(),
@@ -86,7 +89,7 @@ func (c editableConfig) validate(detectors []string) error {
 	for _, f := range []struct {
 		name string
 		v    float64
-	}{{"background_threshold", c.BackgroundThreshold}, {"difference_threshold", c.DifferenceThreshold}} {
+	}{{"background_threshold", c.BackgroundThreshold}, {"difference_threshold", c.DifferenceThreshold}, {"background_rust_threshold", c.BackgroundRustThreshold}} {
 		if math.IsNaN(f.v) || f.v < 0 || f.v > 1 {
 			return fmt.Errorf("%s: must be between 0 and 1", f.name)
 		}
@@ -144,6 +147,7 @@ func applyConfig(payload string, mon *monitor.Monitor, stream *streaming.Stream,
 
 	mon.SetThresholdOf(detection.NameBackground, c.BackgroundThreshold)
 	mon.SetThresholdOf(detection.NameDifference, c.DifferenceThreshold)
+	mon.SetThresholdOf(detection.NameBackgroundRust, c.BackgroundRustThreshold)
 	mon.SetDetector(c.Detector)
 	mon.SetPaused(c.Paused)
 	mon.SetCooldown(secondsToDuration(c.AlarmCooldownSeconds))
