@@ -1,0 +1,27 @@
+#!/usr/bin/env bash
+# Builds the security camera on macOS. cgo is required here too, for the
+# optional background-rust detector.
+set -euo pipefail
+cd "$(dirname "$0")"
+
+if [ "$(uname -s)" != "Darwin" ]; then
+	echo "build_macos must run on macOS" >&2
+	exit 1
+fi
+if ! command -v go >/dev/null; then
+	echo "go not found: install Go 1.24 or newer from https://go.dev/dl" >&2
+	exit 1
+fi
+
+# the optional background-rust detector needs Rust (https://rustup.rs) and
+# the Xcode command line tools, for the C linker
+tags=""
+if command -v cargo >/dev/null && xcode-select -p >/dev/null 2>&1; then
+	(cd detection-lib && cargo build --release)
+	tags="rust"
+else
+	echo "cargo or the Xcode command line tools (xcode-select --install) not found: building without the background-rust detector"
+fi
+
+CGO_ENABLED=1 go build -tags "$tags" -o securitycamera .
+echo "built ./securitycamera${tags:+ (with background-rust)}"

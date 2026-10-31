@@ -52,6 +52,7 @@ func main() {
 	}
 
 	printDiffs := env.Bool("PRINT_DIFFERENCES")
+	printAlarms := env.Bool("PRINT_ALARMS")
 	if env.Bool("PRINT_TELEGRAM_MESSAGES") {
 		bot.AddListener(func(m telegram.Message) {
 			fmt.Printf("Telegram message from %s: %s\n", m.From, m.Text)
@@ -168,6 +169,9 @@ func main() {
 		}
 		if !mon.Paused() && alarm == nil && score >= mon.ThresholdOf(detector.Name()) && ts.Sub(mon.LastAlarm()) > mon.Cooldown() {
 			mon.Alarm(ts)
+			if printAlarms {
+				fmt.Printf("%s alarm: %s score %.4f\n", ts.Format("15:04:05.000"), detector.Name(), score)
+			}
 			// the motion has only just started: wait AlarmDelay and send the
 			// GIF then, so it also covers what comes after the detection
 			alarm = &pendingAlarm{at: ts, due: ts.Add(live.Get().AlarmDelay), detector: detector.Name(), score: score}
