@@ -116,6 +116,21 @@ func (b *Bot) SendMessage(text string) error {
 	return nil
 }
 
+// Reachable reports whether the Telegram API answers at all. Any HTTP reply
+// counts, even an error one: it is the connection that is being tested.
+func (b *Bot) Reachable(ctx context.Context) bool {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, fmt.Sprintf("%s/bot%s/getMe", b.api, b.token), nil)
+	if err != nil {
+		return false
+	}
+	resp, err := b.client.Do(req)
+	if err != nil {
+		return false
+	}
+	resp.Body.Close()
+	return true
+}
+
 // SendAnimation uploads a GIF to the configured chat with an optional caption.
 func (b *Bot) SendAnimation(gif []byte, caption string) error {
 	return b.upload("sendAnimation", "animation", "alarm.gif", gif, caption)

@@ -65,6 +65,28 @@ const DailyReportHour = 9
 // daily message counts the alarms since then on the previous evening.
 const NightStartHour = 20
 
+// The system alarms warn on Telegram when the machine is in trouble. The
+// machine is checked every SystemCheckInterval.
+const SystemCheckInterval = time.Minute
+
+// DiskAlertPercent is the disk usage (0 to 100) from which the disk counts as
+// almost full.
+const DiskAlertPercent = 90
+
+// CPUAlertPercent is the CPU usage (0 to 100) that is a problem when it lasts
+// for CPUAlertChecks checks in a row (5 minutes): short peaks are normal.
+const (
+	CPUAlertPercent = 90
+	CPUAlertChecks  = 5
+)
+
+// TempAlertC is the temperature in °C from which the machine is too hot.
+const TempAlertC = 80
+
+// OfflineAlertChecks is how many failed connection checks in a row mean the
+// connection is lost. The alarm is sent when it comes back.
+const OfflineAlertChecks = 2
+
 // DefaultLatitude and DefaultLongitude are the coordinates of Lucca, used for
 // the weather in the daily message when WEATHER_LATITUDE and
 // WEATHER_LONGITUDE are not set.
