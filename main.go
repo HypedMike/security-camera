@@ -26,6 +26,7 @@ import (
 	"security_camera/lib/env"
 	"security_camera/lib/gif"
 	"security_camera/lib/livegraph"
+	"security_camera/lib/miniapp"
 	"security_camera/lib/monitor"
 	"security_camera/lib/my_video"
 	"security_camera/lib/streaming"
@@ -114,10 +115,40 @@ func main() {
 	}
 	defer video.Close()
 
-	// the live graph is only served when LIVE_STREAM_GRAPH is set
+	// the mini app is only served when MINI_APP_URL is set
+	miniAppURL, err := miniapp.ParseURL(os.Getenv("MINI_APP_URL"))
+	if err != nil {
+		panic(fmt.Errorf("MINI_APP_URL: %w", err))
+	}
+	var app *miniapp.Server
+
+	// the live graph page is only served when LIVE_STREAM_GRAPH is set; the
+	// mini app plots the same scores
 	var graph *livegraph.Graph
-	if env.Bool("LIVE_STREAM_GRAPH") {
+	if env.Bool("LIVE_STREAM_GRAPH") || miniAppURL != "" {
 		graph = livegraph.New()
+	}
+	if miniAppURL != "" {
+		users, err := miniapp.ParseUsers(os.Getenv("TELEGRAM_CHAT_ID"), os.Getenv("MINI_APP_USER_IDS"))
+		if err != nil {
+			panic(fmt.Errorf("MINI_APP_USER_IDS: %w", err))
+		}
+		app = miniapp.New(miniapp.Options{
+			Token:      os.Getenv("TELEGRAM_BOT_TOKEN"),
+			Users:      users,
+			MaxAge:     config.MiniAppAuthMaxAge,
+			MaxViewers: config.MiniAppMaxViewers,
+			MaxStream:  config.MiniAppMaxStream,
+			Events:     graph.Events,
+		})
+		go func() {
+			if err := app.ListenAndServe(config.MiniAppAddr); err != nil {
+				panic(err)
+			}
+		}()
+		fmt.Println("mini app listening on http://" + config.MiniAppAddr + ", public address " + miniAppURL)
+	}
+	if env.Bool("LIVE_STREAM_GRAPH") {
 		go func() {
 			if err := graph.ListenAndServe(config.GraphAddr); err != nil {
 				panic(err)
@@ -127,6 +158,22 @@ func main() {
 	}
 
 	stream := streaming.New(video.Track(), streaming.Options{History: config.StreamHistory})
+
+	if app != nil {
+		// the camera frames for the mini app's video, only made while somebody watches
+		var last time.Time
+		stream.AddHandler(func(frame image.Image, _ []image.Image, ts time.Time) {
+			if !app.Wanted() || ts.Sub(last) < time.Second/config.MiniAppFPS {
+				return
+			}
+			last = ts
+			// encode now: the frame is only valid until this handler returns
+			var buf bytes.Buffer
+			if err := jpeg.Encode(&buf, frame, &jpeg.Options{Quality: config.MiniAppJPEGQuality}); err == nil {
+				app.PushFrame(buf.Bytes())
+			}
+		})
+	}
 
 	// without the store the alarms still work, they just have no HD version
 	gifs, err := gif.NewStore(config.GIFDir, config.GIFStorageLimit)
@@ -141,7 +188,7 @@ func main() {
 	alarms := alarmqueue.New(envPositiveInt("TELEGRAM_MESSAGES_PER_MINUTE", config.TelegramMessagesPerMinute))
 	go alarms.Run(ctx)
 	var cmds commandState
-	initTelegramCommands(ctx, cancel, bot, mon, stream, detectors, gifs, live, alarms, &cmds)
+	initTelegramCommands(ctx, cancel, bot, mon, stream, detectors, gifs, live, alarms, miniAppURL, &cmds)
 
 	stream.AddHandler(func(_ image.Image, _ []image.Image, ts time.Time) {
 		mon.Frame(ts)
@@ -239,6 +286,15 @@ func main() {
 		r.Online = bot.Reachable(ctx)
 		return r
 	}, bot.SendMessage)
+
+	if miniAppURL != "" {
+		// the menu button only works in a private chat; elsewhere /app is the way in
+		go func() {
+			if err := bot.SetMenuWebApp("Camera", miniAppURL); err != nil {
+				fmt.Fprintln(os.Stderr, "mini app menu button:", err)
+			}
+		}()
+	}
 
 	// the camera is open and the stream is about to start
 	go func() {

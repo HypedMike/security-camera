@@ -116,6 +116,46 @@ func (b *Bot) SendMessage(text string) error {
 	return nil
 }
 
+// post calls a Bot API method with a JSON body. Errors leave the url out: it
+// contains the token.
+func (b *Bot) post(method string, payload any) error {
+	body, err := json.Marshal(payload)
+	if err != nil {
+		return err
+	}
+	resp, err := b.client.Post(fmt.Sprintf("%s/bot%s/%s", b.api, b.token, method), "application/json", bytes.NewReader(body))
+	if err != nil {
+		return errors.New("telegram: request failed")
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		msg, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
+		return fmt.Errorf("telegram: status %d: %s", resp.StatusCode, msg)
+	}
+	return nil
+}
+
+// SendWebAppButton posts text with a button that opens the mini app at url.
+// Telegram only allows these buttons in private chats.
+func (b *Bot) SendWebAppButton(text, label, url string) error {
+	return b.post("sendMessage", map[string]any{
+		"chat_id": b.chatID,
+		"text":    text,
+		"reply_markup": map[string]any{
+			"inline_keyboard": [][]map[string]any{{{"text": label, "web_app": map[string]string{"url": url}}}},
+		},
+	})
+}
+
+// SetMenuWebApp makes the menu button next to the message box open the mini
+// app at url. It only applies to a private chat.
+func (b *Bot) SetMenuWebApp(label, url string) error {
+	return b.post("setChatMenuButton", map[string]any{
+		"chat_id":     b.chatID,
+		"menu_button": map[string]any{"type": "web_app", "text": label, "web_app": map[string]string{"url": url}},
+	})
+}
+
 // Reachable reports whether the Telegram API answers at all. Any HTTP reply
 // counts, even an error one: it is the connection that is being tested.
 func (b *Bot) Reachable(ctx context.Context) bool {
