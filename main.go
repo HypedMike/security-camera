@@ -288,7 +288,8 @@ func main() {
 	}, bot.SendMessage)
 
 	if miniAppURL != "" {
-		// the menu button only works in a private chat; elsewhere /app is the way in
+		// the menu button of the private chats with the bot, which is where the
+		// mini app opens from when TELEGRAM_CHAT_ID is a group
 		go func() {
 			if err := bot.SetMenuWebApp("Camera", miniAppURL); err != nil {
 				fmt.Fprintln(os.Stderr, "mini app menu button:", err)

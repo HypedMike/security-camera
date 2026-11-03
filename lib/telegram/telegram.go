@@ -148,10 +148,11 @@ func (b *Bot) SendWebAppButton(text, label, url string) error {
 }
 
 // SetMenuWebApp makes the menu button next to the message box open the mini
-// app at url. It only applies to a private chat.
+// app at url, in every private chat with the bot. It is the bot's default menu
+// button, not the one of the configured chat: that may be a group, and a
+// group has no menu button.
 func (b *Bot) SetMenuWebApp(label, url string) error {
 	return b.post("setChatMenuButton", map[string]any{
-		"chat_id":     b.chatID,
 		"menu_button": map[string]any{"type": "web_app", "text": label, "web_app": map[string]string{"url": url}},
 	})
 }
