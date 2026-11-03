@@ -188,3 +188,55 @@ func TestWebAppButtons(t *testing.T) {
 		t.Errorf("unexpected request: %s %v", path, got)
 	}
 }
+
+func TestIsMember(t *testing.T) {
+	var path string
+	var got map[string]any
+	reply := func(status int, body string) *Bot {
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			path = r.URL.Path
+			json.NewDecoder(r.Body).Decode(&got)
+			w.WriteHeader(status)
+			w.Write([]byte(body))
+		}))
+		t.Cleanup(srv.Close)
+		b, _ := New("TOKEN", "-100123")
+		b.api = srv.URL
+		return b
+	}
+	ctx := context.Background()
+
+	for status, want := range map[string]bool{"creator": true, "administrator": true, "member": true, "left": false, "kicked": false} {
+		b := reply(200, `{"ok":true,"result":{"status":"`+status+`"}}`)
+		if ok, err := b.IsMember(ctx, 42); err != nil || ok != want {
+			t.Errorf("%s: %v, %v", status, ok, err)
+		}
+	}
+	if path != "/botTOKEN/getChatMember" || got["chat_id"] != "-100123" || got["user_id"] != float64(42) {
+		t.Errorf("unexpected request: %s %v", path, got)
+	}
+
+	// restricted users are in the chat only if is_member says so
+	if ok, _ := reply(200, `{"ok":true,"result":{"status":"restricted","is_member":true}}`).IsMember(ctx, 1); !ok {
+		t.Error("restricted member refused")
+	}
+	if ok, _ := reply(200, `{"ok":true,"result":{"status":"restricted","is_member":false}}`).IsMember(ctx, 1); ok {
+		t.Error("restricted non-member accepted")
+	}
+
+	// a user Telegram does not know is not a member, not an error
+	if ok, err := reply(400, `{"ok":false,"description":"Bad Request: user not found"}`).IsMember(ctx, 1); ok || err != nil {
+		t.Errorf("unknown user: %v, %v", ok, err)
+	}
+	// the other failures say nothing about the user
+	for name, b := range map[string]*Bot{
+		"bad chat":       reply(400, `{"ok":false,"description":"Bad Request: chat not found"}`),
+		"not admin":      reply(403, `{"ok":false,"description":"Forbidden: bot is not a member"}`),
+		"server":         reply(500, `oops`),
+		"unknown status": reply(200, `{"ok":true,"result":{"status":"alien"}}`),
+	} {
+		if ok, err := b.IsMember(ctx, 1); ok || err == nil {
+			t.Errorf("%s: %v, %v", name, ok, err)
+		}
+	}
+}

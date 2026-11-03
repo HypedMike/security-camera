@@ -109,16 +109,29 @@ func main() {
 	if _, ok := detectors[detectorName]; !ok {
 		panic(fmt.Errorf("DETECTOR: unknown detector %q, use one of: %s", detectorName, strings.Join(slices.Sorted(maps.Keys(detectors)), ", ")))
 	}
-	video, err := my_video.Open(cfg)
+	// if the chosen camera can't be opened, the others are tried
+	video, err := my_video.OpenAny(cfg)
 	if err != nil {
 		panic(err)
 	}
 	defer video.Close()
 
-	// the mini app is only served when MINI_APP_URL is set
+	// the mini app is only served when MINI_APP_URL is set. A mistake in its
+	// settings turns it off and is reported on Telegram: it must not stop the
+	// camera
 	miniAppURL, err := miniapp.ParseURL(os.Getenv("MINI_APP_URL"))
 	if err != nil {
-		panic(fmt.Errorf("MINI_APP_URL: %w", err))
+		err = fmt.Errorf("MINI_APP_URL: %w", err)
+	}
+	var miniAppAccess *miniapp.Access
+	if err == nil && miniAppURL != "" {
+		miniAppAccess, err = miniapp.NewAccess(os.Getenv("TELEGRAM_CHAT_ID"), bot)
+	}
+	var miniAppProblem string
+	if err != nil {
+		miniAppURL = ""
+		miniAppProblem = "The mini app is off: " + err.Error()
+		fmt.Fprintln(os.Stderr, miniAppProblem)
 	}
 	var app *miniapp.Server
 
@@ -129,13 +142,9 @@ func main() {
 		graph = livegraph.New()
 	}
 	if miniAppURL != "" {
-		users, err := miniapp.ParseUsers(os.Getenv("TELEGRAM_CHAT_ID"), os.Getenv("MINI_APP_USER_IDS"))
-		if err != nil {
-			panic(fmt.Errorf("MINI_APP_USER_IDS: %w", err))
-		}
 		app = miniapp.New(miniapp.Options{
 			Token:      os.Getenv("TELEGRAM_BOT_TOKEN"),
-			Users:      users,
+			Allowed:    miniAppAccess.Allowed,
 			MaxAge:     config.MiniAppAuthMaxAge,
 			MaxViewers: config.MiniAppMaxViewers,
 			MaxStream:  config.MiniAppMaxStream,
@@ -143,7 +152,7 @@ func main() {
 		})
 		go func() {
 			if err := app.ListenAndServe(config.MiniAppAddr); err != nil {
-				panic(err)
+				fmt.Fprintln(os.Stderr, "mini app:", err)
 			}
 		}()
 		fmt.Println("mini app listening on http://" + config.MiniAppAddr + ", public address " + miniAppURL)
@@ -302,6 +311,11 @@ func main() {
 		host, _ := os.Hostname()
 		if err := bot.SendMessage(fmt.Sprintf("Security camera is up and running on %s", host)); err != nil {
 			fmt.Fprintln(os.Stderr, err)
+		}
+		if miniAppProblem != "" {
+			if err := bot.SendMessage(miniAppProblem); err != nil {
+				fmt.Fprintln(os.Stderr, err)
+			}
 		}
 	}()
 

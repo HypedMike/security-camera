@@ -83,7 +83,6 @@ Settings live in `.env` (see [`.env.example`](.env.example)).
 | `PRINT_ALARMS`            | no       | Print a line to the console whenever an alarm is set off            |
 | `PRINT_TELEGRAM_MESSAGES` | no       | Print every Telegram message received from the chat                 |
 | `MINI_APP_URL`            | no       | Public https address of the mini app; empty turns it off            |
-| `MINI_APP_USER_IDS`       | no       | Comma separated Telegram user ids allowed in the mini app besides the owner of `TELEGRAM_CHAT_ID` (needed if that is a group) |
 
 Flag: `-fetch-camera` lists the cameras again and lets you choose a different one.
 
@@ -112,7 +111,14 @@ The mini app is a web page Telegram opens inside the chat: the live view of the 
 2. Put that address in `.env` as `MINI_APP_URL` and restart.
 3. Open the **private chat with the bot** (press Start the first time): the menu button next to the message box ("Camera") opens the app. The program sets it at startup for every private chat with the bot, so it works even if `TELEGRAM_CHAT_ID` is a group. `/app` also sends a button for it, but only in a private chat when that is the configured chat: Telegram does not allow these buttons in groups.
 
-Who gets in: every request carries the signed data Telegram gives the app when it opens (`initData`). The program checks its signature with the bot token and lets in only the owner of `TELEGRAM_CHAT_ID` (a private chat) and the ids in `MINI_APP_USER_IDS`. The signed data expires after 24 hours; anybody else, or an expired link, gets "unauthorized". Anyone who knows the public address can still open the page and send requests, so this check is all that protects the video: keep the bot token secret. At most 3 videos are open at once, each stops after 15 minutes (the app pauses it after 10 minutes and while it is hidden), and frames are only encoded while somebody is watching.
+A mistake in the mini app settings (an `MINI_APP_URL` that is not https) does not stop the camera: the program starts with the mini app off and says why on Telegram and in the log.
+
+Who gets in: every request carries the signed data Telegram gives the app when it opens (`initData`). The program checks its signature with the bot token, then who the user is:
+
+- if `TELEGRAM_CHAT_ID` is a **private chat**, only that user;
+- if it is a **group**, whoever is in the group. Telegram has no call that lists the members of a group, so the program asks it about the user when they open the app (`getChatMember`) and remembers the answer: a yes for 10 minutes, a no for 1 minute. Somebody who joins gets in within a minute, somebody who leaves is out within 10 minutes. If Telegram can't be asked, nobody gets in. Telegram only guarantees this call for other users if **the bot is an administrator of the group**: make it one, or the app will refuse everybody (the log says `can't check whether user ... is in the group`).
+
+The signed data expires after 24 hours. Everybody else, or an expired link, gets "unauthorized". Anyone who knows the public address can still open the page and send requests, so this check is all that protects the video: keep the bot token secret. At most 3 videos are open at once, each stops after 15 minutes (the app pauses it after 10 minutes and while it is hidden), and frames are only encoded while somebody is watching.
 
 The page is built from [`miniapp-web/`](miniapp-web/) (React, TypeScript, Vite) into `lib/miniapp/dist`, which is committed and embedded in the program, so the machine that runs the camera does not need Node. After changing the page, rebuild it and commit the result:
 

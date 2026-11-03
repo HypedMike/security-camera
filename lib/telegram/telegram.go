@@ -135,6 +135,56 @@ func (b *Bot) post(method string, payload any) error {
 	return nil
 }
 
+// IsMember reports whether the Telegram user is in the configured chat.
+// Telegram has no call that lists the members of a group, only one that tells
+// about a single user: this is it (getChatMember). It is only guaranteed to
+// work for other users if the bot is an administrator of the group. A user
+// Telegram does not know counts as not being a member; any other failure is an
+// error, and says nothing about the user.
+func (b *Bot) IsMember(ctx context.Context, userID int64) (bool, error) {
+	body, err := json.Marshal(map[string]any{"chat_id": b.chatID, "user_id": userID})
+	if err != nil {
+		return false, err
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, fmt.Sprintf("%s/bot%s/getChatMember", b.api, b.token), bytes.NewReader(body))
+	if err != nil {
+		return false, errors.New("telegram: request failed")
+	}
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := b.client.Do(req)
+	if err != nil {
+		// the url contains the token, so don't leak it through the error
+		return false, errors.New("telegram: request failed")
+	}
+	defer resp.Body.Close()
+
+	var out struct {
+		Description string `json:"description"`
+		Result      struct {
+			Status   string `json:"status"`
+			IsMember bool   `json:"is_member"`
+		} `json:"result"`
+	}
+	// the description of an error is in the body, decoding may fail on a proxy's page
+	json.NewDecoder(io.LimitReader(resp.Body, 4096)).Decode(&out)
+	if resp.StatusCode == http.StatusBadRequest && strings.Contains(strings.ToLower(out.Description), "user not found") {
+		return false, nil
+	}
+	if resp.StatusCode != http.StatusOK {
+		return false, fmt.Errorf("telegram: getChatMember: status %d: %s", resp.StatusCode, out.Description)
+	}
+	switch out.Result.Status {
+	case "creator", "administrator", "member":
+		return true, nil
+	case "restricted":
+		// still in the chat, but muted or limited: is_member says whether
+		return out.Result.IsMember, nil
+	case "left", "kicked":
+		return false, nil
+	}
+	return false, fmt.Errorf("telegram: getChatMember: unknown status %q", out.Result.Status)
+}
+
 // SendWebAppButton posts text with a button that opens the mini app at url.
 // Telegram only allows these buttons in private chats.
 func (b *Bot) SendWebAppButton(text, label, url string) error {

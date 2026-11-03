@@ -1,7 +1,9 @@
 package miniapp
 
 import (
+	"context"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -61,7 +63,7 @@ func TestValidate(t *testing.T) {
 
 func newServer(t *testing.T) *httptest.Server {
 	t.Helper()
-	s := New(Options{Token: token, Users: []int64{42}, MaxAge: time.Hour, MaxViewers: 1, MaxStream: time.Minute,
+	s := New(Options{Token: token, Allowed: func(_ context.Context, id int64) bool { return id == 42 }, MaxAge: time.Hour, MaxViewers: 1, MaxStream: time.Minute,
 		Events: func(w http.ResponseWriter, r *http.Request) { w.Write([]byte("data: [1,0.5]\n\n")) }})
 	srv := httptest.NewServer(s.Handler())
 	t.Cleanup(srv.Close)
@@ -112,7 +114,7 @@ func signedNow(t *testing.T, userID int64) string {
 }
 
 func TestStream(t *testing.T) {
-	s := New(Options{Token: token, Users: []int64{42}, MaxAge: time.Hour, MaxViewers: 1, MaxStream: time.Minute})
+	s := New(Options{Token: token, Allowed: func(_ context.Context, id int64) bool { return id == 42 }, MaxAge: time.Hour, MaxViewers: 1, MaxStream: time.Minute})
 	srv := httptest.NewServer(s.Handler())
 	defer srv.Close()
 	auth := "?auth=" + url.QueryEscape(signedNow(t, 42))
@@ -184,23 +186,86 @@ func TestParseURL(t *testing.T) {
 	}
 }
 
-func TestParseUsers(t *testing.T) {
-	if got, err := ParseUsers("42", ""); err != nil || len(got) != 1 || got[0] != 42 {
-		t.Errorf("private chat: %v, %v", got, err)
+type fakeMembers struct {
+	in    map[int64]bool
+	err   error
+	calls int
+}
+
+func (f *fakeMembers) IsMember(_ context.Context, id int64) (bool, error) {
+	f.calls++
+	return f.in[id], f.err
+}
+
+func TestAccessPrivateChat(t *testing.T) {
+	a, err := NewAccess("42", nil)
+	if err != nil {
+		t.Fatal(err)
 	}
-	if got, err := ParseUsers("42", " 7, 8 ,"); err != nil || len(got) != 3 || got[2] != 8 {
-		t.Errorf("extra users: %v, %v", got, err)
+	if !a.Allowed(context.Background(), 42) || a.Allowed(context.Background(), 43) {
+		t.Error("only the user of a private chat may get in")
 	}
-	if got, err := ParseUsers("-100123", "7"); err != nil || len(got) != 1 || got[0] != 7 {
-		t.Errorf("group chat: %v, %v", got, err)
+}
+
+func TestAccessGroup(t *testing.T) {
+	m := &fakeMembers{in: map[int64]bool{7: true}}
+	a, err := NewAccess("-100123", m)
+	if err != nil {
+		t.Fatal(err)
 	}
-	if _, err := ParseUsers("-100123", ""); err == nil {
-		t.Error("group chat with nobody allowed accepted")
+	clock := time.Date(2026, 11, 3, 12, 0, 0, 0, time.UTC)
+	a.now = func() time.Time { return clock }
+	ctx := context.Background()
+
+	if !a.Allowed(ctx, 7) || a.Allowed(ctx, 8) {
+		t.Fatal("members in, others out")
 	}
-	if _, err := ParseUsers("42", "abc"); err == nil {
-		t.Error("bad id accepted")
+	a.Allowed(ctx, 7)
+	a.Allowed(ctx, 8)
+	if m.calls != 2 {
+		t.Errorf("answers are not remembered: %d calls", m.calls)
 	}
-	if _, err := ParseUsers("42", "-5"); err == nil {
-		t.Error("negative id accepted")
+
+	// a no is forgotten soon: somebody who just joined gets in
+	m.in[8] = true
+	clock = clock.Add(noFor + time.Second)
+	if !a.Allowed(ctx, 8) {
+		t.Error("a new member is still refused after the no expired")
+	}
+	// a yes lasts longer, then somebody who left is out
+	delete(m.in, 7)
+	if !a.Allowed(ctx, 7) {
+		t.Error("a yes was not kept")
+	}
+	clock = clock.Add(yesFor + time.Second)
+	if a.Allowed(ctx, 7) {
+		t.Error("somebody who left is still let in")
+	}
+}
+
+func TestAccessGroupFailsClosed(t *testing.T) {
+	m := &fakeMembers{in: map[int64]bool{7: true}, err: errors.New("down")}
+	a, _ := NewAccess("-100123", m)
+	clock := time.Date(2026, 11, 3, 12, 0, 0, 0, time.UTC)
+	a.now = func() time.Time { return clock }
+	if a.Allowed(context.Background(), 7) {
+		t.Fatal("let in with the check failing")
+	}
+	// the failure is not held against the user for long
+	m.err = nil
+	clock = clock.Add(errorFor + time.Second)
+	if !a.Allowed(context.Background(), 7) {
+		t.Error("still refused after the failure was forgotten")
+	}
+}
+
+func TestNewAccess(t *testing.T) {
+	for _, in := range []string{"", "abc", "0"} {
+		if _, err := NewAccess(in, &fakeMembers{}); err == nil {
+			t.Errorf("NewAccess(%q) accepted", in)
+		}
+	}
+	if _, err := NewAccess("-100123", nil); err == nil {
+		t.Error("a group with no way to check it accepted")
 	}
 }
