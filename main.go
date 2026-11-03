@@ -29,6 +29,8 @@ import (
 	"security_camera/lib/monitor"
 	"security_camera/lib/my_video"
 	"security_camera/lib/streaming"
+	"security_camera/lib/sysinfo"
+	"security_camera/lib/syswatch"
 	"security_camera/lib/telegram"
 	"security_camera/lib/update"
 )
@@ -222,6 +224,21 @@ func main() {
 	go dailyreport.Run(ctx, config.DailyReportHour, func(now time.Time) {
 		sendDailyReport(ctx, bot, mon, now)
 	})
+
+	go syswatch.Run(ctx, config.SystemCheckInterval, syswatch.Limits{
+		DiskPercent:   config.DiskAlertPercent,
+		CPUPercent:    config.CPUAlertPercent,
+		CPUChecks:     config.CPUAlertChecks,
+		TempC:         config.TempAlertC,
+		OfflineChecks: config.OfflineAlertChecks,
+	}, func(ctx context.Context) (r syswatch.Reading) {
+		// the disk that holds the GIFs and the .env file
+		r.Disk, r.HasDisk = sysinfo.DiskUsedPercent(".")
+		r.CPU, r.HasCPU = sysinfo.CPUPercent()
+		r.Temp, r.HasTemp = sysinfo.MaxTemperature()
+		r.Online = bot.Reachable(ctx)
+		return r
+	}, bot.SendMessage)
 
 	// the camera is open and the stream is about to start
 	go func() {

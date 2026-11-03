@@ -84,16 +84,22 @@ func readFile(path string) string {
 	return strings.TrimSpace(string(b))
 }
 
-// temperatures returns "name: 45.0°C" for every thermal zone, falling back to
-// hwmon sensors when there are none.
-func temperatures() []string {
-	var out []string
+// sensor is one temperature reading.
+type sensor struct {
+	name string
+	c    float64
+}
+
+// readTemperatures returns every thermal zone, falling back to hwmon sensors
+// when there are none.
+func readTemperatures() []sensor {
+	var out []sensor
 	add := func(name, file string) {
 		v, err := strconv.ParseFloat(readFile(file), 64)
 		if err != nil {
 			return
 		}
-		out = append(out, fmt.Sprintf("%s %.1f°C", name, v/1000))
+		out = append(out, sensor{name, v / 1000})
 	}
 	zones, _ := filepath.Glob("/sys/class/thermal/thermal_zone*/temp")
 	for _, f := range zones {
@@ -115,6 +121,52 @@ func temperatures() []string {
 		add(name, f)
 	}
 	return out
+}
+
+// temperatures returns "name 45.0°C" for every sensor.
+func temperatures() []string {
+	var out []string
+	for _, s := range readTemperatures() {
+		out = append(out, fmt.Sprintf("%s %.1f°C", s.name, s.c))
+	}
+	return out
+}
+
+// MaxTemperature returns the hottest sensor in °C; ok is false if the machine
+// has no readable sensor.
+func MaxTemperature() (c float64, ok bool) {
+	for _, s := range readTemperatures() {
+		if !ok || s.c > c {
+			c, ok = s.c, true
+		}
+	}
+	return c, ok
+}
+
+// DiskUsedPercent returns how full, from 0 to 100, the disk holding dir is.
+func DiskUsedPercent(dir string) (float64, bool) {
+	var fs syscall.Statfs_t
+	if err := syscall.Statfs(dir, &fs); err != nil {
+		return 0, false
+	}
+	total := uint64(fs.Blocks) * uint64(fs.Bsize)
+	free := uint64(fs.Bavail) * uint64(fs.Bsize)
+	if total == 0 {
+		return 0, false
+	}
+	return pct(total-free, total), true
+}
+
+// CPUPercent returns the usage of the whole machine, from 0 to 100, measured
+// over a fraction of a second.
+func CPUPercent() (float64, bool) {
+	busy0, total0, ok0 := cpuTimes(readFile("/proc/stat"))
+	time.Sleep(sampleWindow)
+	busy1, total1, ok1 := cpuTimes(readFile("/proc/stat"))
+	if !ok0 || !ok1 || total1 <= total0 {
+		return 0, false
+	}
+	return pct(busy1-busy0, total1-total0), true
 }
 
 func mb(kb uint64) string { return fmt.Sprintf("%.0f MB", float64(kb)/1024) }
