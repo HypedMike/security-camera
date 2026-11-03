@@ -1,0 +1,86 @@
+# The mini app is built from miniapp-web/ into lib/miniapp/dist, which is
+# committed so the machine running the camera does not need Node. This keeps
+# the two in step: it tests and builds the page, and if dist is not what the
+# sources produce it rebuilds it.
+#
+#   - pull request from this repository: the rebuilt dist is committed to the
+#     PR branch (the push does not start this workflow again)
+#   - pull request from a fork, or push to main: it can't or shouldn't push,
+#     so the run fails and says what to do
+name: Mini app
+
+on:
+  pull_request:
+    paths:
+      - miniapp-web/**
+      - lib/miniapp/dist/**
+      - .github/workflows/miniapp.yml
+  push:
+    branches: [main]
+    paths:
+      - miniapp-web/**
+      - lib/miniapp/dist/**
+      - .github/workflows/miniapp.yml
+
+permissions:
+  contents: read
+
+jobs:
+  dist:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # only used to push the rebuilt dist to a PR branch
+    defaults:
+      run:
+        working-directory: miniapp-web
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # for a PR, the branch itself and not the merge with main: that is
+          # what a rebuilt dist is pushed to
+          ref: ${{ github.event.pull_request.head.ref || github.ref }}
+          repository: ${{ github.event.pull_request.head.repo.full_name || github.repository }}
+
+      # the pnpm version is the packageManager field of miniapp-web/package.json
+      - uses: pnpm/action-setup@v4
+        with:
+          package_json_file: miniapp-web/package.json
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: miniapp-web/pnpm-lock.yaml
+
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm test
+      - run: pnpm run build
+
+      - name: Is dist what the sources build?
+        id: stale
+        working-directory: .
+        run: |
+          # untracked files too: a build can add a file with a new hash
+          if [ -n "$(git status --porcelain --untracked-files=all lib/miniapp/dist)" ]; then
+            echo "stale=true" >> "$GITHUB_OUTPUT"
+            git status --short lib/miniapp/dist
+          else
+            echo "stale=false" >> "$GITHUB_OUTPUT"
+            echo "dist is up to date"
+          fi
+
+      - name: Commit the rebuilt dist to the PR branch
+        if: steps.stale.outputs.stale == 'true' && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+        working-directory: .
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add --all lib/miniapp/dist
+          git commit -m "Rebuild the mini app dist"
+          git push
+
+      - name: Fail, dist is out of date
+        if: steps.stale.outputs.stale == 'true' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name != github.repository)
+        run: |
+          echo "::error::lib/miniapp/dist is not what miniapp-web builds. Run 'pnpm install && pnpm run build' in miniapp-web and commit lib/miniapp/dist."
+          exit 1

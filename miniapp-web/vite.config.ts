@@ -6,7 +6,7 @@ import { defineConfig } from 'vite'
 export default defineConfig({
   plugins: [react()],
   build: { outDir: '../lib/miniapp/dist', emptyOutDir: true },
-  // npm run dev: the API calls go to the program running locally
+  // pnpm run dev: the API calls go to the program running locally
   server: { proxy: { '/api': 'http://127.0.0.1:8081', '/stream': 'http://127.0.0.1:8081', '/events': 'http://127.0.0.1:8081' } },
   test: { environment: 'node' },
 })

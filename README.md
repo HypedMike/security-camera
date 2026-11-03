@@ -118,12 +118,14 @@ The page is built from [`miniapp-web/`](miniapp-web/) (React, TypeScript, Vite) 
 
 ```bash
 cd miniapp-web
-npm ci
-npm test
-npm run build
+pnpm install --frozen-lockfile
+pnpm test
+pnpm run build
 ```
 
-`npm run dev` serves the page with hot reload and sends the API calls to the program on `127.0.0.1:8081`. Outside Telegram the page has no signed data, so it shows "Open this page from Telegram": test it in Telegram, through the tunnel.
+The project uses [pnpm](https://pnpm.io/) (the version is the `packageManager` field of `miniapp-web/package.json`, Node 22 or newer). A GitHub Actions workflow ([`.github/workflows/miniapp.yml`](.github/workflows/miniapp.yml)) runs the same steps on every pull request that touches the page: if `lib/miniapp/dist` is not what the sources build, it commits the rebuilt one to the pull request branch (for a fork, or on `main`, it fails instead).
+
+`pnpm run dev` serves the page with hot reload and sends the API calls to the program on `127.0.0.1:8081`. Outside Telegram the page has no signed data, so it shows "Open this page from Telegram": test it in Telegram, through the tunnel.
 
 ## Development
 

@@ -19,7 +19,7 @@ import (
 	"time"
 )
 
-// dist is the React app (miniapp-web), built with npm run build and committed
+// dist is the React app (miniapp-web), built with pnpm run build and committed
 // so the machine that runs the camera does not need Node.
 //
 //go:embed all:dist
