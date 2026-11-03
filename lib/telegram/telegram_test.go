@@ -179,6 +179,9 @@ func TestWebAppButtons(t *testing.T) {
 	if err := b.SetMenuWebApp("Camera", "https://x.ts.net"); err != nil {
 		t.Fatal(err)
 	}
+	if _, ok := got["chat_id"]; ok {
+		t.Errorf("menu button set for one chat, it must be the default one: %v", got)
+	}
 	menu := got["menu_button"].(map[string]any)
 	if path != "/botTOKEN/setChatMenuButton" || menu["type"] != "web_app" || menu["text"] != "Camera" ||
 		menu["web_app"].(map[string]any)["url"] != "https://x.ts.net" {

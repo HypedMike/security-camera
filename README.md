@@ -110,7 +110,7 @@ The mini app is a web page Telegram opens inside the chat: the live view of the 
 
    `tailscale funnel status` shows the public address, like `https://camera.tail1234.ts.net`. Check the exact command and its prerequisites in the Tailscale documentation: it has changed between versions.
 2. Put that address in `.env` as `MINI_APP_URL` and restart.
-3. In the bot's private chat, the menu button next to the message box ("Camera") opens the app, and `/app` sends a button for it. Telegram does not allow these buttons in groups.
+3. Open the **private chat with the bot** (press Start the first time): the menu button next to the message box ("Camera") opens the app. The program sets it at startup for every private chat with the bot, so it works even if `TELEGRAM_CHAT_ID` is a group. `/app` also sends a button for it, but only in a private chat when that is the configured chat: Telegram does not allow these buttons in groups.
 
 Who gets in: every request carries the signed data Telegram gives the app when it opens (`initData`). The program checks its signature with the bot token and lets in only the owner of `TELEGRAM_CHAT_ID` (a private chat) and the ids in `MINI_APP_USER_IDS`. The signed data expires after 24 hours; anybody else, or an expired link, gets "unauthorized". Anyone who knows the public address can still open the page and send requests, so this check is all that protects the video: keep the bot token secret. At most 3 videos are open at once, each stops after 15 minutes (the app pauses it after 10 minutes and while it is hidden), and frames are only encoded while somebody is watching.
 

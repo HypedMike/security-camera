@@ -125,7 +125,7 @@ func initTelegramCommands(ctx context.Context, cancel context.CancelFunc, bot *t
 			go func() {
 				if err := bot.SendWebAppButton("Live view and motion graph:", "Open the camera", miniAppURL); err != nil {
 					fmt.Fprintf(os.Stderr, "app: %v\n", err)
-					reply("app", "Could not send the button: Telegram only allows mini app buttons in a private chat with the bot.")
+					reply("app", "Could not send the button: Telegram only allows mini app buttons in a private chat with the bot. Open the bot's private chat and use the Camera button next to the message box.")
 				}
 			}()
 		},
