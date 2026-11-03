@@ -4,16 +4,16 @@
 // The server only listens on the local machine; a tunnel (Tailscale Funnel)
 // makes it reachable over HTTPS. Every request except the page itself has to
 // carry the initData Telegram gives the app when it opens, which proves the
-// request comes from a Telegram user, and only the users in Options.Users
-// are let in.
+// request comes from a Telegram user, and only the users Options.Allowed
+// accepts are let in.
 package miniapp
 
 import (
+	"context"
 	"embed"
 	"fmt"
 	"io/fs"
 	"net/http"
-	"slices"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -29,8 +29,8 @@ var dist embed.FS
 type Options struct {
 	// Token is the bot token the initData signature is checked with.
 	Token string
-	// Users are the Telegram user ids allowed in.
-	Users []int64
+	// Allowed says whether a Telegram user may open the app.
+	Allowed func(ctx context.Context, userID int64) bool
 	// MaxAge is how old the initData may be.
 	MaxAge time.Duration
 	// MaxViewers is how many video streams may be open at once.
@@ -115,7 +115,7 @@ func (s *Server) Handler() http.Handler {
 func (s *Server) guard(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		id, err := Validate(r.URL.Query().Get("auth"), s.opts.Token, time.Now(), s.opts.MaxAge)
-		if err != nil || !slices.Contains(s.opts.Users, id) {
+		if err != nil || !s.opts.Allowed(r.Context(), id) {
 			http.Error(w, "unauthorized", http.StatusUnauthorized)
 			return
 		}

@@ -119,9 +119,17 @@ func main() {
 	// the mini app is only served when MINI_APP_URL is set. A mistake in its
 	// settings turns it off and is reported on Telegram: it must not stop the
 	// camera
-	miniAppURL, miniAppUsers, err := miniapp.Settings(os.Getenv("MINI_APP_URL"), os.Getenv("TELEGRAM_CHAT_ID"), os.Getenv("MINI_APP_USER_IDS"))
+	miniAppURL, err := miniapp.ParseURL(os.Getenv("MINI_APP_URL"))
+	if err != nil {
+		err = fmt.Errorf("MINI_APP_URL: %w", err)
+	}
+	var miniAppAccess *miniapp.Access
+	if err == nil && miniAppURL != "" {
+		miniAppAccess, err = miniapp.NewAccess(os.Getenv("TELEGRAM_CHAT_ID"), bot)
+	}
 	var miniAppProblem string
 	if err != nil {
+		miniAppURL = ""
 		miniAppProblem = "The mini app is off: " + err.Error()
 		fmt.Fprintln(os.Stderr, miniAppProblem)
 	}
@@ -136,7 +144,7 @@ func main() {
 	if miniAppURL != "" {
 		app = miniapp.New(miniapp.Options{
 			Token:      os.Getenv("TELEGRAM_BOT_TOKEN"),
-			Users:      miniAppUsers,
+			Allowed:    miniAppAccess.Allowed,
 			MaxAge:     config.MiniAppAuthMaxAge,
 			MaxViewers: config.MiniAppMaxViewers,
 			MaxStream:  config.MiniAppMaxStream,
