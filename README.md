@@ -21,6 +21,7 @@ It watches the camera, and when it sees motion above a threshold it sends a shor
   | `/info`   | Reports machine state (system) and camera/alarm state |
   | `/queue`  | Lists the latest 10 alarms: sent (and when), waiting in the queue or still being processed |
   | `/hd <code>` | Sends the HD version of the alarm GIF with that code |
+  | `/app`    | Sends a button that opens the mini app (live view and motion graph) |
   | `/update` | Pulls the latest code, rebuilds and restarts          |
   | `/pause`  | Stops sending alarms (the camera keeps running)       |
   | `/resume` | Starts sending alarms again                           |
@@ -29,6 +30,7 @@ It watches the camera, and when it sees motion above a threshold it sends a shor
 - **System alarms**: every minute the program checks the machine and warns on Telegram when the disk is 90% full or more, when the CPU stays at 90% or more for 5 minutes, when a temperature sensor reaches 80°C, and when the connection to Telegram is lost. Each problem is reported once when it starts and once when it is over. A lost connection can only be reported when it comes back ("Connection back after 12m0s (lost at 03:14)"), and a warning that cannot be sent is kept and sent as soon as the connection is back. The limits are in [`lib/config/config.go`](lib/config/config.go); values the machine cannot read (e.g. temperature on macOS) are skipped.
 - **Daily "i'm alive" message**: every day at 9:00 (machine local time) the bot says it is running, how many alarms there were during the night, from 20:00 the evening before (or that there was no movement), and a suggestion based on today's forecast (for `WEATHER_LATITUDE`/`WEATHER_LONGITUDE`, Lucca if unset) and temperatures from [Open-Meteo](https://open-meteo.com/) (no key needed). On a sunny Sunday it adds a hike suggestion.
 - **Live graph** (optional): a web page at `http://localhost:8080` plotting the motion score in real time, handy for tuning the threshold.
+- **Telegram mini app** (optional): a page inside Telegram, written in React ([`miniapp-web/`](miniapp-web/)), with the live camera view and the live motion graph. See [Mini app](#mini-app).
 - **Guided setup**: missing settings are asked for at startup and saved to `.env`; the camera is chosen interactively and remembered.
 
 ## Requirements
@@ -80,6 +82,8 @@ Settings live in `.env` (see [`.env.example`](.env.example)).
 | `TELEGRAM_MESSAGES_PER_MINUTE` | no  | Most alarm messages sent to Telegram per minute, default `2`; the others wait in the queue, see `/queue` |
 | `PRINT_ALARMS`            | no       | Print a line to the console whenever an alarm is set off            |
 | `PRINT_TELEGRAM_MESSAGES` | no       | Print every Telegram message received from the chat                 |
+| `MINI_APP_URL`            | no       | Public https address of the mini app; empty turns it off            |
+| `MINI_APP_USER_IDS`       | no       | Comma separated Telegram user ids allowed in the mini app besides the owner of `TELEGRAM_CHAT_ID` (needed if that is a group) |
 
 Flag: `-fetch-camera` lists the cameras again and lets you choose a different one.
 
@@ -93,6 +97,33 @@ Each detector has its own score and its own threshold; `/edit_config` changes bo
 - **difference**: the average absolute RGB change between consecutive frames over the last `detection_frames` frames (`/edit_config`), normalized from 0 (identical) to 1 (black to white).
 
 To tune one, turn on `LIVE_STREAM_GRAPH`, watch the graph with the room still and with someone moving, and set the threshold between the two.
+
+## Mini app
+
+The mini app is a web page Telegram opens inside the chat: the live view of the camera (MJPEG, about 5 frames a second) and the motion score graph.
+
+1. Make the program reachable over https. Telegram only opens https addresses, and the program only listens on `127.0.0.1:8081`, so nothing is exposed until you do this. With [Tailscale Funnel](https://tailscale.com/kb/1311/tailscale-funnel) (Tailscale installed, HTTPS and Funnel enabled for your tailnet):
+
+   ```bash
+   tailscale funnel --bg 8081
+   ```
+
+   `tailscale funnel status` shows the public address, like `https://camera.tail1234.ts.net`. Check the exact command and its prerequisites in the Tailscale documentation: it has changed between versions.
+2. Put that address in `.env` as `MINI_APP_URL` and restart.
+3. In the bot's private chat, the menu button next to the message box ("Camera") opens the app, and `/app` sends a button for it. Telegram does not allow these buttons in groups.
+
+Who gets in: every request carries the signed data Telegram gives the app when it opens (`initData`). The program checks its signature with the bot token and lets in only the owner of `TELEGRAM_CHAT_ID` (a private chat) and the ids in `MINI_APP_USER_IDS`. The signed data expires after 24 hours; anybody else, or an expired link, gets "unauthorized". Anyone who knows the public address can still open the page and send requests, so this check is all that protects the video: keep the bot token secret. At most 3 videos are open at once, each stops after 15 minutes (the app pauses it after 10 minutes and while it is hidden), and frames are only encoded while somebody is watching.
+
+The page is built from [`miniapp-web/`](miniapp-web/) (React, TypeScript, Vite) into `lib/miniapp/dist`, which is committed and embedded in the program, so the machine that runs the camera does not need Node. After changing the page, rebuild it and commit the result:
+
+```bash
+cd miniapp-web
+npm ci
+npm test
+npm run build
+```
+
+`npm run dev` serves the page with hot reload and sends the API calls to the program on `127.0.0.1:8081`. Outside Telegram the page has no signed data, so it shows "Open this page from Telegram": test it in Telegram, through the tunnel.
 
 ## Development
 

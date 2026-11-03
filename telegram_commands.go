@@ -42,10 +42,11 @@ type commandState struct {
 //	/edit_config [json]  sends all the settings as JSON, or changes them to the JSON that follows
 //	/queue   lists the latest alarms: sent (and when), waiting or still being processed
 //	/hd <code>   sends the HD version of the alarm GIF with that code
+//	/app     opens the mini app with the live view and the motion graph
 //	/update  pulls, rebuilds and restarts the program
 //
 // cancel stops the stream, which is how /update makes main restart.
-func initTelegramCommands(ctx context.Context, cancel context.CancelFunc, bot *telegram.Bot, mon *monitor.Monitor, stream *streaming.Stream, detectors map[string]detection.Detector, gifs *gif.Store, live *config.Live, alarms *alarmqueue.Queue, state *commandState) {
+func initTelegramCommands(ctx context.Context, cancel context.CancelFunc, bot *telegram.Bot, mon *monitor.Monitor, stream *streaming.Stream, detectors map[string]detection.Detector, gifs *gif.Store, live *config.Live, alarms *alarmqueue.Queue, miniAppURL string, state *commandState) {
 	reply := func(command, text string) {
 		if err := bot.SendMessage(text); err != nil {
 			fmt.Fprintf(os.Stderr, "%s: %v\n", command, err)
@@ -112,6 +113,19 @@ func initTelegramCommands(ctx context.Context, cancel context.CancelFunc, bot *t
 				if err != nil {
 					fmt.Fprintf(os.Stderr, "hd: %v\n", err)
 					reply("hd", "Could not send the HD GIF.")
+				}
+			}()
+		},
+
+		"app": func(telegram.Message) {
+			if miniAppURL == "" {
+				go reply("app", "The mini app is off. Set MINI_APP_URL in .env to turn it on.")
+				return
+			}
+			go func() {
+				if err := bot.SendWebAppButton("Live view and motion graph:", "Open the camera", miniAppURL); err != nil {
+					fmt.Fprintf(os.Stderr, "app: %v\n", err)
+					reply("app", "Could not send the button: Telegram only allows mini app buttons in a private chat with the bot.")
 				}
 			}()
 		},

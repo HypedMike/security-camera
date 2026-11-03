@@ -66,6 +66,10 @@ func (g *Graph) handler() http.Handler {
 	return mux
 }
 
+// Events serves the points as server-sent events, for pages that embed the
+// graph.
+func (g *Graph) Events(w http.ResponseWriter, r *http.Request) { g.events(w, r) }
+
 // events streams points as server-sent events, starting with the recent history.
 func (g *Graph) events(w http.ResponseWriter, r *http.Request) {
 	flusher, ok := w.(http.Flusher)

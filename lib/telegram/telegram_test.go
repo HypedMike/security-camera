@@ -154,3 +154,34 @@ func TestMessagePayload(t *testing.T) {
 		}
 	}
 }
+
+func TestWebAppButtons(t *testing.T) {
+	var path string
+	var got map[string]any
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		path = r.URL.Path
+		got = nil
+		json.NewDecoder(r.Body).Decode(&got)
+	}))
+	defer srv.Close()
+	b, _ := New("TOKEN", "42")
+	b.api = srv.URL
+
+	if err := b.SendWebAppButton("hello", "Open", "https://x.ts.net"); err != nil {
+		t.Fatal(err)
+	}
+	row := got["reply_markup"].(map[string]any)["inline_keyboard"].([]any)[0].([]any)[0].(map[string]any)
+	if path != "/botTOKEN/sendMessage" || got["text"] != "hello" || row["text"] != "Open" ||
+		row["web_app"].(map[string]any)["url"] != "https://x.ts.net" {
+		t.Errorf("unexpected request: %s %v", path, got)
+	}
+
+	if err := b.SetMenuWebApp("Camera", "https://x.ts.net"); err != nil {
+		t.Fatal(err)
+	}
+	menu := got["menu_button"].(map[string]any)
+	if path != "/botTOKEN/setChatMenuButton" || menu["type"] != "web_app" || menu["text"] != "Camera" ||
+		menu["web_app"].(map[string]any)["url"] != "https://x.ts.net" {
+		t.Errorf("unexpected request: %s %v", path, got)
+	}
+}

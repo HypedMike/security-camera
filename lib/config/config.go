@@ -87,6 +87,28 @@ const TempAlertC = 80
 // connection is lost. The alarm is sent when it comes back.
 const OfflineAlertChecks = 2
 
+// The Telegram mini app (MINI_APP_URL) shows the live view and the motion
+// graph. It listens on MiniAppAddr, on this machine only: a tunnel such as
+// Tailscale Funnel makes it reachable over HTTPS.
+const MiniAppAddr = "127.0.0.1:8081"
+
+// MiniAppFPS is how many video frames a second are sent to the mini app,
+// MiniAppJPEGQuality their JPEG quality (1 to 100).
+const (
+	MiniAppFPS         = 5
+	MiniAppJPEGQuality = 60
+)
+
+// MiniAppMaxViewers is how many video streams can be open at once.
+const MiniAppMaxViewers = 3
+
+// MiniAppMaxStream is the longest one video stream is kept open.
+const MiniAppMaxStream = 15 * time.Minute
+
+// MiniAppAuthMaxAge is how old the signed data Telegram gives the app when it
+// opens may be: past that the app has to be opened again.
+const MiniAppAuthMaxAge = 24 * time.Hour
+
 // DefaultLatitude and DefaultLongitude are the coordinates of Lucca, used for
 // the weather in the daily message when WEATHER_LATITUDE and
 // WEATHER_LONGITUDE are not set.
