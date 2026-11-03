@@ -204,3 +204,20 @@ func TestParseUsers(t *testing.T) {
 		t.Error("negative id accepted")
 	}
 }
+
+func TestSettings(t *testing.T) {
+	if u, users, err := Settings("", "-100", ""); u != "" || users != nil || err != nil {
+		t.Errorf("off: %q %v %v", u, users, err)
+	}
+	if u, users, err := Settings("https://x.ts.net", "42", "7"); err != nil || u != "https://x.ts.net" || len(users) != 2 {
+		t.Errorf("on: %q %v %v", u, users, err)
+	}
+	// each mistake is an error that names its variable, with the mini app left off
+	u, _, err := Settings("https://x.ts.net", "-100", "")
+	if err == nil || u != "" || !strings.Contains(err.Error(), "MINI_APP_USER_IDS") {
+		t.Errorf("group without users: %q %v", u, err)
+	}
+	if _, _, err := Settings("http://x", "42", ""); err == nil || !strings.Contains(err.Error(), "MINI_APP_URL") {
+		t.Errorf("http address: %v", err)
+	}
+}

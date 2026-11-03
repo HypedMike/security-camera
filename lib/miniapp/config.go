@@ -46,3 +46,22 @@ func ParseUsers(chatID, extra string) ([]int64, error) {
 	}
 	return users, nil
 }
+
+// Settings reads the mini app settings: the public address (MINI_APP_URL) and
+// who may open it. An empty address means the mini app is off, with no error.
+// An error means the settings are wrong, and the caller should leave the mini
+// app off: a mistake there must not stop the camera.
+func Settings(rawURL, chatID, extraUsers string) (publicURL string, users []int64, err error) {
+	publicURL, err = ParseURL(rawURL)
+	if err != nil {
+		return "", nil, fmt.Errorf("MINI_APP_URL: %w", err)
+	}
+	if publicURL == "" {
+		return "", nil, nil
+	}
+	users, err = ParseUsers(chatID, extraUsers)
+	if err != nil {
+		return "", nil, fmt.Errorf("MINI_APP_USER_IDS: %w", err)
+	}
+	return publicURL, users, nil
+}

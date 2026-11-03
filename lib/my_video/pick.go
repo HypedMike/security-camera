@@ -22,10 +22,8 @@ func Pick(refetch bool) (string, error) {
 		return devs[0].ID, nil
 	}
 	if saved := os.Getenv("CAMERA_ID"); saved != "" && !refetch {
-		for _, d := range devs {
-			if d.ID == saved {
-				return saved, nil
-			}
+		if d, ok := find(devs, saved); ok {
+			return d.ID, nil
 		}
 		fmt.Println("saved camera not found, choosing again")
 	}
@@ -34,9 +32,22 @@ func Pick(refetch bool) (string, error) {
 		labels[i] = d.Label
 	}
 	chosen := devs[env.Choose(os.Stdin, os.Stdout, "Several cameras found:", labels, config.CameraChoiceTimeout)]
-	if err := env.Save(config.EnvFile, "CAMERA_ID", chosen.ID); err != nil {
+	// the label is saved, not the id: the driver gives a new random id to
+	// every camera at every start, so a saved id never matched again
+	if err := env.Save(config.EnvFile, "CAMERA_ID", chosen.Label); err != nil {
 		return "", err
 	}
-	os.Setenv("CAMERA_ID", chosen.ID)
+	os.Setenv("CAMERA_ID", chosen.Label)
 	return chosen.ID, nil
+}
+
+// find returns the camera CAMERA_ID names: by label, or by id for the ids
+// that older versions saved (those only match within the run that saved them).
+func find(devs []Device, saved string) (Device, bool) {
+	for _, d := range devs {
+		if d.Label == saved || d.ID == saved {
+			return d, true
+		}
+	}
+	return Device{}, false
 }

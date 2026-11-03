@@ -112,6 +112,8 @@ The mini app is a web page Telegram opens inside the chat: the live view of the 
 2. Put that address in `.env` as `MINI_APP_URL` and restart.
 3. Open the **private chat with the bot** (press Start the first time): the menu button next to the message box ("Camera") opens the app. The program sets it at startup for every private chat with the bot, so it works even if `TELEGRAM_CHAT_ID` is a group. `/app` also sends a button for it, but only in a private chat when that is the configured chat: Telegram does not allow these buttons in groups.
 
+A mistake in the mini app settings (an `MINI_APP_URL` that is not https, or `MINI_APP_USER_IDS` missing when `TELEGRAM_CHAT_ID` is a group) does not stop the camera: the program starts with the mini app off and says why on Telegram and in the log.
+
 Who gets in: every request carries the signed data Telegram gives the app when it opens (`initData`). The program checks its signature with the bot token and lets in only the owner of `TELEGRAM_CHAT_ID` (a private chat) and the ids in `MINI_APP_USER_IDS`. The signed data expires after 24 hours; anybody else, or an expired link, gets "unauthorized". Anyone who knows the public address can still open the page and send requests, so this check is all that protects the video: keep the bot token secret. At most 3 videos are open at once, each stops after 15 minutes (the app pauses it after 10 minutes and while it is hidden), and frames are only encoded while somebody is watching.
 
 The page is built from [`miniapp-web/`](miniapp-web/) (React, TypeScript, Vite) into `lib/miniapp/dist`, which is committed and embedded in the program, so the machine that runs the camera does not need Node. After changing the page, rebuild it and commit the result:
