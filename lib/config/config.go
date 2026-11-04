@@ -50,6 +50,12 @@ const LowGIFFrameDelay = 20
 // LowGIFWidth is the largest width of the low quality GIF frames: 160x120.
 const LowGIFWidth = 160
 
+// HDGIFQueue is how many HD GIFs can wait to be made, besides the one being
+// made. They are made one at a time after the alarm is sent, since each takes
+// tens of seconds and holds about 90 MB of frames; past this the oldest
+// waiting one is dropped and its /hd code never works.
+const HDGIFQueue = 3
+
 // GIFDir is the directory the HD GIFs are saved in.
 const GIFDir = "gifs"
 

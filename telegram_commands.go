@@ -14,6 +14,7 @@ import (
 	"security_camera/lib/config"
 	"security_camera/lib/detection"
 	"security_camera/lib/gif"
+	"security_camera/lib/hdgif"
 	"security_camera/lib/monitor"
 	"security_camera/lib/streaming"
 	"security_camera/lib/sysinfo"
@@ -46,7 +47,7 @@ type commandState struct {
 //	/update  pulls, rebuilds and restarts the program
 //
 // cancel stops the stream, which is how /update makes main restart.
-func initTelegramCommands(ctx context.Context, cancel context.CancelFunc, bot *telegram.Bot, mon *monitor.Monitor, stream *streaming.Stream, detectors map[string]detection.Detector, gifs *gif.Store, live *config.Live, alarms *alarmqueue.Queue, miniAppURL string, state *commandState) {
+func initTelegramCommands(ctx context.Context, cancel context.CancelFunc, bot *telegram.Bot, mon *monitor.Monitor, stream *streaming.Stream, detectors map[string]detection.Detector, gifs *gif.Store, hd *hdgif.Queue, live *config.Live, alarms *alarmqueue.Queue, miniAppURL string, state *commandState) {
 	reply := func(command, text string) {
 		if err := bot.SendMessage(text); err != nil {
 			fmt.Fprintf(os.Stderr, "%s: %v\n", command, err)
@@ -103,6 +104,16 @@ func initTelegramCommands(ctx context.Context, cancel context.CancelFunc, bot *t
 			// reading and uploading the GIF takes a while, don't hold up the other messages
 			go func() {
 				data, err := gifs.Get(args[0])
+				if errors.Is(err, gif.ErrNotFound) && hd != nil {
+					switch hd.State(strings.ToLower(args[0])) {
+					case hdgif.Pending:
+						reply("hd", fmt.Sprintf("The HD GIF %s is still being made, try again in a minute.", strings.ToLower(args[0])))
+						return
+					case hdgif.Dropped:
+						reply("hd", fmt.Sprintf("The HD GIF %s was not made: too many alarms at once, or it failed.", strings.ToLower(args[0])))
+						return
+					}
+				}
 				if errors.Is(err, gif.ErrNotFound) {
 					reply("hd", fmt.Sprintf("No HD GIF with code %q. Old ones are deleted to keep the storage under the limit.", args[0]))
 					return

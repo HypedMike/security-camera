@@ -25,6 +25,7 @@ import (
 	"security_camera/lib/detection"
 	"security_camera/lib/env"
 	"security_camera/lib/gif"
+	"security_camera/lib/hdgif"
 	"security_camera/lib/livegraph"
 	"security_camera/lib/miniapp"
 	"security_camera/lib/monitor"
@@ -190,6 +191,12 @@ func main() {
 		fmt.Fprintln(os.Stderr, "gifs: HD GIFs will not be saved:", err)
 		gifs = nil
 	}
+	// the HD GIFs are made one at a time, after their alarm is sent
+	var hd *hdgif.Queue
+	if gifs != nil {
+		hd = hdgif.New(config.HDGIFQueue)
+		go hd.Run(ctx)
+	}
 
 	live := config.NewLive()
 
@@ -197,7 +204,7 @@ func main() {
 	alarms := alarmqueue.New(envPositiveInt("TELEGRAM_MESSAGES_PER_MINUTE", config.TelegramMessagesPerMinute))
 	go alarms.Run(ctx)
 	var cmds commandState
-	initTelegramCommands(ctx, cancel, bot, mon, stream, detectors, gifs, live, alarms, miniAppURL, &cmds)
+	initTelegramCommands(ctx, cancel, bot, mon, stream, detectors, gifs, hd, live, alarms, miniAppURL, &cmds)
 
 	stream.AddHandler(func(_ image.Image, _ []image.Image, ts time.Time) {
 		mon.Frame(ts)
@@ -261,7 +268,7 @@ func main() {
 				// and Shrink copies them
 				v := live.Get()
 				hdFrames := gif.Shrink(everyNth(lastFrames(history, frame, mon.GIFFrames()), v.HDGIFFrameStep), v.HDGIFWidth)
-				go sendAlarm(bot, a.queued, gifs, hdFrames, caption, v)
+				go sendAlarm(bot, a.queued, gifs, hd, hdFrames, caption, v)
 			} else {
 				a.queued.Cancel("paused")
 			}
@@ -371,12 +378,11 @@ func weatherCoordinates() (lat, lon float64) {
 	return lat, lon
 }
 
-// sendAlarm makes the low quality GIF of the alarm with a code under it, and
-// saves the HD one in gifs under that code for /hd, then hands the message to
-// the queue. Without a store, or if the HD GIF can't be made or saved, the
-// code is left out. hdFrames are the
-// frames of the HD GIF.
-func sendAlarm(bot *telegram.Bot, queued *alarmqueue.Alarm, gifs *gif.Store, hdFrames []image.Image, caption string, v config.Values) {
+// sendAlarm makes the low quality GIF of the alarm with a code under it and
+// hands the message to the queue at once. The HD GIF, made from hdFrames, is
+// slow to encode: it is left to hd, which saves it in gifs under that code for
+// /hd. Without a store the code is left out.
+func sendAlarm(bot *telegram.Bot, queued *alarmqueue.Alarm, gifs *gif.Store, hd *hdgif.Queue, hdFrames []image.Image, caption string, v config.Values) {
 	lowFrames := gif.Shrink(everyNth(hdFrames, v.LowGIFFrameStep), v.LowGIFWidth)
 	low, err := gif.Encode(lowFrames, v.LowGIFFrameDelay, false)
 	if err != nil {
@@ -385,28 +391,27 @@ func sendAlarm(bot *telegram.Bot, queued *alarmqueue.Alarm, gifs *gif.Store, hdF
 		return
 	}
 
-	// the HD GIF is saved before the alarm goes out, so the code works at once
-	if gifs != nil {
-		if code, err := saveHD(gifs, hdFrames, v); err != nil {
+	// the alarm does not wait for the HD GIF: /hd tells when it is not ready yet
+	if gifs != nil && hd != nil {
+		if code, err := gif.NewCode(); err != nil {
 			fmt.Fprintln(os.Stderr, "hd gif:", err)
 		} else {
+			if dropped := hd.Add(code, func() error { return saveHD(gifs, code, hdFrames, v) }); dropped != "" {
+				fmt.Fprintf(os.Stderr, "hd gif: too many waiting, %s will not be made\n", dropped)
+			}
 			caption += fmt.Sprintf("\nHD version: /hd %s", code)
 		}
 	}
 	queued.Ready(func() error { return bot.SendAnimation(low, caption) })
 }
 
-// saveHD encodes frames as the HD GIF and saves it, returning its code.
-func saveHD(gifs *gif.Store, frames []image.Image, v config.Values) (string, error) {
-	hd, err := gif.Encode(frames, v.HDGIFFrameDelay, v.HDGIFDither)
+// saveHD encodes frames as the HD GIF and saves it under code.
+func saveHD(gifs *gif.Store, code string, frames []image.Image, v config.Values) error {
+	data, err := gif.Encode(frames, v.HDGIFFrameDelay, v.HDGIFDither)
 	if err != nil {
-		return "", err
+		return err
 	}
-	code, err := gif.NewCode()
-	if err != nil {
-		return "", err
-	}
-	return code, gifs.Save(code, hd)
+	return gifs.Save(code, data)
 }
 
 // pendingAlarm is a detection whose alarm is sent once due has passed.
