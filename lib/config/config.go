@@ -6,54 +6,32 @@ import (
 	"time"
 )
 
-// TelegramMessagesPerMinute is the default most alarm messages sent to
-// Telegram in a minute (TELEGRAM_MESSAGES_PER_MINUTE).
-const TelegramMessagesPerMinute = 2
-
 // AlarmCooldown is the minimum time between two Telegram notifications.
 const AlarmCooldown = 5 * time.Second
 
-// AlarmDelay is how long the program waits after it detects motion before it
-// sends the alarm, so the GIF also shows what happens next: at the first
-// detection the thing that moved is often not fully in the frame yet.
-const AlarmDelay = 3 * time.Second
-
-// Every alarm makes two GIFs from the same frames. The low quality one is
-// sent with the alarm and is tiny, so it arrives fast even on a poor
-// connection; the HD one is kept on disk and sent by /hd <code>.
+// When motion is detected the alarm message is sent at once. In the
+// background the program then records the next AlarmGIFSpan of the camera at
+// AlarmGIFFPS frames a second, saves them as a GIF in GIFDir and sends it as
+// a reply to the alarm message when somebody reacts to it with a thumbs up.
 //
-// The delay is in hundredths of a second between frames. On a 30 fps camera
-// a step of 3 with a delay of 10 plays at real speed, and so do 6 and 20.
+// AlarmGIFSpan is how long the recording lasts, AlarmGIFFPS how many frames
+// of it are kept every second.
+const (
+	AlarmGIFSpan = 5 * time.Second
+	AlarmGIFFPS  = 2
+)
 
-// HDGIFFrameStep keeps one frame out of every HDGIFFrameStep of the last
-// GIFFrames: 150 frames become 75, about 5 seconds long.
-const HDGIFFrameStep = 2
-
-// HDGIFFrameDelay is the pause between HD GIF frames.
-const HDGIFFrameDelay = 7
-
-// HDGIFWidth is the largest width of the HD GIF frames: the full 640x480.
+// HDGIFWidth is the largest width of the GIF frames: the full 640x480.
 const HDGIFWidth = 640
 
-// HDGIFDither smooths the HD GIF colours, at the price of a file up to about
+// HDGIFDither smooths the GIF colours, at the price of a file up to about
 // 3 times bigger.
 const HDGIFDither = true
 
-// LowGIFFrameStep is how many HD GIF frames are skipped to make the low
-// quality GIF, which is therefore one frame in HDGIFFrameStep*LowGIFFrameStep
-// of the camera: 75 frames become 25, still about 5 seconds long.
-const LowGIFFrameStep = 3
-
-// LowGIFFrameDelay is the pause between low quality GIF frames.
-const LowGIFFrameDelay = 20
-
-// LowGIFWidth is the largest width of the low quality GIF frames: 160x120.
-const LowGIFWidth = 160
-
-// GIFDir is the directory the HD GIFs are saved in.
+// GIFDir is the directory the alarm GIFs are saved in.
 const GIFDir = "gifs"
 
-// GIFStorageLimit is the largest total size in bytes of the saved HD GIFs
+// GIFStorageLimit is the largest total size in bytes of the saved GIFs
 // (1 GB). Past it the oldest GIFs are deleted.
 const GIFStorageLimit = 1 << 30
 
@@ -126,10 +104,6 @@ const EnvFile = ".env"
 // StreamHistory is how many past frames the stack keeps by default (n).
 const StreamHistory = 300
 
-// GIFFrames is how many of the latest frames an alarm GIF covers by default
-// (m), before GIFFrameStep drops some of them.
-const GIFFrames = 150
-
 // DefaultDetector is the motion detector used when DETECTOR is not set.
 const DefaultDetector = "background"
 
@@ -160,16 +134,11 @@ const UpdateTimeout = 10 * time.Minute
 // Values are the fixed settings above that /edit_config can change while the
 // program runs.
 type Values struct {
-	AlarmDelay time.Duration
+	AlarmGIFSpan time.Duration
+	AlarmGIFFPS  int
 
-	HDGIFFrameStep  int
-	HDGIFFrameDelay int
-	HDGIFWidth      int
-	HDGIFDither     bool
-
-	LowGIFFrameStep  int
-	LowGIFFrameDelay int
-	LowGIFWidth      int
+	HDGIFWidth  int
+	HDGIFDither bool
 
 	SnapJPEGQuality int
 }
@@ -183,15 +152,11 @@ type Live struct {
 // NewLive returns a Live that starts at the constants above.
 func NewLive() *Live {
 	return &Live{v: Values{
-		AlarmDelay:       AlarmDelay,
-		HDGIFFrameStep:   HDGIFFrameStep,
-		HDGIFFrameDelay:  HDGIFFrameDelay,
-		HDGIFWidth:       HDGIFWidth,
-		HDGIFDither:      HDGIFDither,
-		LowGIFFrameStep:  LowGIFFrameStep,
-		LowGIFFrameDelay: LowGIFFrameDelay,
-		LowGIFWidth:      LowGIFWidth,
-		SnapJPEGQuality:  SnapJPEGQuality,
+		AlarmGIFSpan:    AlarmGIFSpan,
+		AlarmGIFFPS:     AlarmGIFFPS,
+		HDGIFWidth:      HDGIFWidth,
+		HDGIFDither:     HDGIFDither,
+		SnapJPEGQuality: SnapJPEGQuality,
 	}}
 }
 

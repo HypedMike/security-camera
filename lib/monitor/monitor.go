@@ -21,7 +21,7 @@ type Monitor struct {
 	paused   atomic.Bool
 	cooldown atomic.Int64 // time.Duration
 
-	detectFrames, gifFrames atomic.Int64
+	detectFrames atomic.Int64
 
 	frames, alarms       atomic.Int64
 	lastFrame, lastAlarm atomic.Int64 // unix nanos, 0 if none yet
@@ -67,12 +67,6 @@ func (m *Monitor) DetectionFrames() int { return int(m.detectFrames.Load()) }
 
 // SetDetectionFrames changes how many of the latest frames the difference is computed on.
 func (m *Monitor) SetDetectionFrames(n int) { m.detectFrames.Store(int64(n)) }
-
-// GIFFrames returns how many of the latest frames an alarm GIF contains.
-func (m *Monitor) GIFFrames() int { return int(m.gifFrames.Load()) }
-
-// SetGIFFrames changes how many of the latest frames an alarm GIF contains.
-func (m *Monitor) SetGIFFrames(n int) { m.gifFrames.Store(int64(n)) }
 
 // Threshold returns the motion score at or above which the detector in use
 // sends an alarm.
@@ -186,6 +180,6 @@ func (m *Monitor) Report() string {
 	if m.Paused() {
 		state = "paused"
 	}
-	return fmt.Sprintf("Camera\n  device: %s\n  frames: %d (%.1f fps average)\n  last frame: %s\n  alarms sent: %d\n  alarm state: %s\n  last alarm: %s\n  detector: %s\n  alarm threshold: %g, cooldown %s\n  detection frames: %d, gif frames: %d",
-		camera, frames, fps, ago(fromNanos(m.lastFrame.Load())), m.alarms.Load(), state, ago(m.LastAlarm()), m.Detector(), m.Threshold(), m.Cooldown(), m.DetectionFrames(), m.GIFFrames())
+	return fmt.Sprintf("Camera\n  device: %s\n  frames: %d (%.1f fps average)\n  last frame: %s\n  alarms sent: %d\n  alarm state: %s\n  last alarm: %s\n  detector: %s\n  alarm threshold: %g, cooldown %s\n  detection frames: %d",
+		camera, frames, fps, ago(fromNanos(m.lastFrame.Load())), m.alarms.Load(), state, ago(m.LastAlarm()), m.Detector(), m.Threshold(), m.Cooldown(), m.DetectionFrames())
 }

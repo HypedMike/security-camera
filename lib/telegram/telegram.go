@@ -33,6 +33,7 @@ type Bot struct {
 
 	mu        sync.RWMutex
 	listeners []Listener
+	reactions []ReactionListener
 }
 
 // Message is a text message received in the configured chat.
@@ -78,6 +79,19 @@ func (m Message) Payload() string {
 // Listener is called for every message received in the configured chat.
 type Listener func(Message)
 
+// Reaction is a reaction someone added to a message of the configured chat.
+type Reaction struct {
+	// MessageID is the message that was reacted to.
+	MessageID int
+	// Emoji is the emoji of the reaction, e.g. "👍".
+	Emoji string
+	// From is the username of who reacted, or their first name.
+	From string
+}
+
+// ReactionListener is called for every reaction added in the configured chat.
+type ReactionListener func(Reaction)
+
 func New(token, chatID string) (*Bot, error) {
 	if token == "" || chatID == "" {
 		return nil, errors.New("telegram: token and chat id are required")
@@ -97,23 +111,37 @@ func New(token, chatID string) (*Bot, error) {
 
 // SendMessage posts text to the configured chat.
 func (b *Bot) SendMessage(text string) error {
+	_, err := b.Send(text)
+	return err
+}
+
+// Send posts text to the configured chat and returns the id of the message,
+// which is what reactions and replies refer to.
+func (b *Bot) Send(text string) (int, error) {
 	body, err := json.Marshal(map[string]string{"chat_id": b.chatID, "text": text})
 	if err != nil {
-		return err
+		return 0, err
 	}
 
 	resp, err := b.client.Post(fmt.Sprintf("%s/bot%s/sendMessage", b.api, b.token), "application/json", bytes.NewReader(body))
 	if err != nil {
 		// the url contains the token, so don't leak it through the error
-		return errors.New("telegram: request failed")
+		return 0, errors.New("telegram: request failed")
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
 		msg, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
-		return fmt.Errorf("telegram: status %d: %s", resp.StatusCode, msg)
+		return 0, fmt.Errorf("telegram: status %d: %s", resp.StatusCode, msg)
 	}
-	return nil
+	var out struct {
+		Result struct {
+			MessageID int `json:"message_id"`
+		} `json:"result"`
+	}
+	// the message is sent, a reply that can't be read only costs its id
+	json.NewDecoder(io.LimitReader(resp.Body, 64<<10)).Decode(&out)
+	return out.Result.MessageID, nil
 }
 
 // post calls a Bot API method with a JSON body. Errors leave the url out: it
@@ -224,20 +252,28 @@ func (b *Bot) Reachable(ctx context.Context) bool {
 
 // SendAnimation uploads a GIF to the configured chat with an optional caption.
 func (b *Bot) SendAnimation(gif []byte, caption string) error {
-	return b.upload("sendAnimation", "animation", "alarm.gif", gif, caption)
+	return b.upload("sendAnimation", "animation", "alarm.gif", gif, caption, 0)
+}
+
+// SendAnimationReply is SendAnimation as a reply to the message with id replyTo.
+func (b *Bot) SendAnimationReply(gif []byte, caption string, replyTo int) error {
+	return b.upload("sendAnimation", "animation", "alarm.gif", gif, caption, replyTo)
 }
 
 // SendPhoto uploads a JPEG to the configured chat with an optional caption.
 func (b *Bot) SendPhoto(jpeg []byte, caption string) error {
-	return b.upload("sendPhoto", "photo", "snap.jpg", jpeg, caption)
+	return b.upload("sendPhoto", "photo", "snap.jpg", jpeg, caption, 0)
 }
 
-func (b *Bot) upload(method, field, filename string, data []byte, caption string) error {
+func (b *Bot) upload(method, field, filename string, data []byte, caption string, replyTo int) error {
 	var body bytes.Buffer
 	w := multipart.NewWriter(&body)
 	w.WriteField("chat_id", b.chatID)
 	if caption != "" {
 		w.WriteField("caption", caption)
+	}
+	if replyTo != 0 {
+		w.WriteField("reply_parameters", fmt.Sprintf(`{"message_id":%d,"allow_sending_without_reply":true}`, replyTo))
 	}
 	part, err := w.CreateFormFile(field, filename)
 	if err != nil {
@@ -271,9 +307,29 @@ func (b *Bot) AddListener(l Listener) {
 	b.listeners = append(b.listeners, l)
 }
 
+// reactionType is one reaction as Telegram describes it: custom emoji and
+// paid reactions have no Emoji.
+type reactionType struct {
+	Type  string `json:"type"`
+	Emoji string `json:"emoji"`
+}
+
 type update struct {
 	UpdateID int `json:"update_id"`
-	Message  *struct {
+	// MessageReaction is sent when somebody changes their reactions to a message.
+	MessageReaction *struct {
+		Chat struct {
+			ID int64 `json:"id"`
+		} `json:"chat"`
+		MessageID int `json:"message_id"`
+		User      struct {
+			Username  string `json:"username"`
+			FirstName string `json:"first_name"`
+		} `json:"user"`
+		OldReaction []reactionType `json:"old_reaction"`
+		NewReaction []reactionType `json:"new_reaction"`
+	} `json:"message_reaction"`
+	Message *struct {
 		MessageID int    `json:"message_id"`
 		Date      int64  `json:"date"`
 		Text      string `json:"text"`
@@ -285,6 +341,17 @@ type update struct {
 			FirstName string `json:"first_name"`
 		} `json:"from"`
 	} `json:"message"`
+}
+
+// AddReactionListener registers a listener for the reactions added to messages
+// in the configured chat, one call per emoji added (removing one is not
+// reported). Telegram only sends reactions to a bot that is an administrator
+// of a group; in a private chat it always does. It is safe to call while Run
+// is active.
+func (b *Bot) AddReactionListener(l ReactionListener) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.reactions = append(b.reactions, l)
 }
 
 // Run long-polls for new messages and dispatches the ones from the configured
@@ -308,6 +375,15 @@ func (b *Bot) Run(ctx context.Context) error {
 		}
 		for _, u := range updates {
 			offset = u.UpdateID + 1
+			if r := u.MessageReaction; r != nil && strconv.FormatInt(r.Chat.ID, 10) == b.chatID {
+				from := r.User.Username
+				if from == "" {
+					from = r.User.FirstName
+				}
+				for _, e := range addedEmoji(r.OldReaction, r.NewReaction) {
+					b.dispatchReaction(Reaction{MessageID: r.MessageID, Emoji: e, From: from})
+				}
+			}
 			m := u.Message
 			if m == nil || m.Text == "" || strconv.FormatInt(m.Chat.ID, 10) != b.chatID {
 				continue
@@ -322,6 +398,33 @@ func (b *Bot) Run(ctx context.Context) error {
 	return ctx.Err()
 }
 
+// addedEmoji returns the emoji in new that are not in old.
+func addedEmoji(old, new []reactionType) []string {
+	var out []string
+next:
+	for _, n := range new {
+		if n.Type != "emoji" {
+			continue
+		}
+		for _, o := range old {
+			if o.Type == "emoji" && o.Emoji == n.Emoji {
+				continue next
+			}
+		}
+		out = append(out, n.Emoji)
+	}
+	return out
+}
+
+func (b *Bot) dispatchReaction(r Reaction) {
+	b.mu.RLock()
+	listeners := b.reactions
+	b.mu.RUnlock()
+	for _, l := range listeners {
+		l(r)
+	}
+}
+
 func (b *Bot) dispatch(m Message) {
 	b.mu.RLock()
 	listeners := b.listeners
@@ -332,7 +435,7 @@ func (b *Bot) dispatch(m Message) {
 }
 
 func (b *Bot) getUpdates(ctx context.Context, offset int) ([]update, error) {
-	url := fmt.Sprintf("%s/bot%s/getUpdates?offset=%d&timeout=%d&allowed_updates=%%5B%%22message%%22%%5D",
+	url := fmt.Sprintf("%s/bot%s/getUpdates?offset=%d&timeout=%d&allowed_updates=%%5B%%22message%%22,%%22message_reaction%%22%%5D",
 		b.api, b.token, offset, int(b.pollTimeout.Seconds()))
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {

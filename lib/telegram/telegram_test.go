@@ -240,3 +240,73 @@ func TestIsMember(t *testing.T) {
 		}
 	}
 }
+
+func TestSendReturnsMessageID(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		io.WriteString(w, `{"ok":true,"result":{"message_id":321}}`)
+	}))
+	defer srv.Close()
+	b, _ := New("TOKEN", "42")
+	b.api = srv.URL
+	id, err := b.Send("hi")
+	if err != nil || id != 321 {
+		t.Errorf("id %d err %v, want 321", id, err)
+	}
+}
+
+func TestSendAnimationReply(t *testing.T) {
+	var reply string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		r.ParseMultipartForm(1 << 20)
+		reply = r.FormValue("reply_parameters")
+	}))
+	defer srv.Close()
+	b, _ := New("TOKEN", "42")
+	b.api = srv.URL
+	if err := b.SendAnimationReply([]byte("GIF89a"), "cap", 55); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(reply, `"message_id":55`) {
+		t.Errorf("reply_parameters %q", reply)
+	}
+}
+
+func TestReactionListeners(t *testing.T) {
+	var calls atomic.Int32
+	var query string
+	done := make(chan struct{})
+	var got []Reaction
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		query = r.URL.RawQuery
+		if calls.Add(1) == 1 {
+			io.WriteString(w, `{"ok":true,"result":[
+				{"update_id":1,"message_reaction":{"chat":{"id":-42},"message_id":9,"user":{"username":"bob"},
+					"old_reaction":[{"type":"emoji","emoji":"❤"}],
+					"new_reaction":[{"type":"emoji","emoji":"❤"},{"type":"emoji","emoji":"👍"},{"type":"custom_emoji"}]}},
+				{"update_id":2,"message_reaction":{"chat":{"id":7},"message_id":9,"user":{"first_name":"Eve"},
+					"old_reaction":[],"new_reaction":[{"type":"emoji","emoji":"👍"}]}},
+				{"update_id":3,"message_reaction":{"chat":{"id":-42},"message_id":9,"user":{"first_name":"Al"},
+					"old_reaction":[{"type":"emoji","emoji":"👍"}],"new_reaction":[]}}]}`)
+			return
+		}
+		close(done)
+		io.WriteString(w, `{"ok":true,"result":[]}`)
+	}))
+	defer srv.Close()
+
+	b, _ := New("TOKEN", "-42")
+	b.api = srv.URL
+	b.pollTimeout = 0
+	b.AddReactionListener(func(r Reaction) { got = append(got, r) })
+	ctx, cancel := context.WithCancel(context.Background())
+	go b.Run(ctx)
+	<-done
+	cancel()
+
+	if len(got) != 1 || got[0] != (Reaction{MessageID: 9, Emoji: "👍", From: "bob"}) {
+		t.Errorf("reactions %+v, want only bob's new thumbs up", got)
+	}
+	if !strings.Contains(query, "message_reaction") {
+		t.Errorf("getUpdates does not ask for reactions: %s", query)
+	}
+}

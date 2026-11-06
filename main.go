@@ -19,7 +19,7 @@ import (
 	"strings"
 	"time"
 
-	"security_camera/lib/alarmqueue"
+	"security_camera/lib/alarmlog"
 	"security_camera/lib/config"
 	"security_camera/lib/dailyreport"
 	"security_camera/lib/detection"
@@ -29,6 +29,7 @@ import (
 	"security_camera/lib/miniapp"
 	"security_camera/lib/monitor"
 	"security_camera/lib/my_video"
+	"security_camera/lib/recorder"
 	"security_camera/lib/streaming"
 	"security_camera/lib/sysinfo"
 	"security_camera/lib/syswatch"
@@ -93,7 +94,6 @@ func main() {
 	}
 	mon := monitor.New(cfg.DeviceID, detectorName, thresholds, config.AlarmCooldown)
 	mon.SetDetectionFrames(config.DetectionFrames)
-	mon.SetGIFFrames(config.GIFFrames)
 
 	detectors := map[string]detection.Detector{}
 	all := []detection.Detector{
@@ -184,23 +184,33 @@ func main() {
 		})
 	}
 
-	// without the store the alarms still work, they just have no HD version
+	// without the store the alarms still work, they just have no GIF
 	gifs, err := gif.NewStore(config.GIFDir, config.GIFStorageLimit)
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "gifs: HD GIFs will not be saved:", err)
+		fmt.Fprintln(os.Stderr, "gifs: the alarm GIFs will not be saved:", err)
 		gifs = nil
 	}
 
 	live := config.NewLive()
 
-	// the alarm messages go out through this queue, at most so many a minute
-	alarms := alarmqueue.New(envPositiveInt("TELEGRAM_MESSAGES_PER_MINUTE", config.TelegramMessagesPerMinute))
-	go alarms.Run(ctx)
+	// every alarm is told at once; its GIF is recorded in the background and
+	// sent to whoever reacts to the message with a thumbs up
+	alarms := &alarmlog.Log{}
+	frames := recorder.New(func(img image.Image) image.Image {
+		return gif.Shrink([]image.Image{img}, live.Get().HDGIFWidth)[0]
+	})
+	bot.AddReactionListener(func(r telegram.Reaction) { onReaction(bot, alarms, gifs, r) })
 	var cmds commandState
 	initTelegramCommands(ctx, cancel, bot, mon, stream, detectors, gifs, live, alarms, miniAppURL, &cmds)
 
 	stream.AddHandler(func(_ image.Image, _ []image.Image, ts time.Time) {
 		mon.Frame(ts)
+	})
+
+	// before the detector's handler, which starts a recording with the frame
+	// that set the alarm off
+	stream.AddHandler(func(frame image.Image, _ []image.Image, ts time.Time) {
+		frames.Frame(frame, ts)
 	})
 
 	stream.AddHandler(func(frame image.Image, _ []image.Image, ts time.Time) {
@@ -223,16 +233,10 @@ func main() {
 	// detector is only used by this handler; /detector switches it through
 	// the monitor, and the newly chosen one starts learning from scratch
 	var detector detection.Detector
-	// alarm is the detection waiting for AlarmDelay to pass, nil if none
-	var alarm *pendingAlarm
 	stream.AddHandler(func(frame image.Image, history []image.Image, ts time.Time) {
 		if name := mon.Detector(); detector == nil || detector.Name() != name {
 			detector = detectors[name]
 			detector.Reset()
-			if alarm != nil {
-				alarm.queued.Cancel("detector changed")
-			}
-			alarm = nil
 		}
 		score, err := detector.Score(frame, history)
 		if err != nil {
@@ -242,29 +246,12 @@ func main() {
 		if graph != nil {
 			graph.Push(score)
 		}
-		if !mon.Paused() && alarm == nil && score >= mon.ThresholdOf(detector.Name()) && ts.Sub(mon.LastAlarm()) > mon.Cooldown() {
+		if !mon.Paused() && score >= mon.ThresholdOf(detector.Name()) && ts.Sub(mon.LastAlarm()) > mon.Cooldown() {
 			mon.Alarm(ts)
 			if printAlarms {
 				fmt.Printf("%s alarm: %s score %.4f\n", ts.Format("15:04:05.000"), detector.Name(), score)
 			}
-			// the motion has only just started: wait AlarmDelay and send the
-			// GIF then, so it also covers what comes after the detection
-			alarm = &pendingAlarm{at: ts, due: ts.Add(live.Get().AlarmDelay), detector: detector.Name(), score: score,
-				queued: alarms.Begin(ts, detector.Name(), score)}
-		}
-		if alarm != nil && !ts.Before(alarm.due) {
-			a := alarm
-			alarm = nil
-			if !mon.Paused() {
-				caption := fmt.Sprintf("Alarm: motion detected at %s (%s score %.4f)", a.at.Format("15:04:05"), a.detector, a.score)
-				// shrink now: the frames are only valid until this handler returns,
-				// and Shrink copies them
-				v := live.Get()
-				hdFrames := gif.Shrink(everyNth(lastFrames(history, frame, mon.GIFFrames()), v.HDGIFFrameStep), v.HDGIFWidth)
-				go sendAlarm(bot, a.queued, gifs, hdFrames, caption, v)
-			} else {
-				a.queued.Cancel("paused")
-			}
+			startAlarm(bot, alarms, frames, gifs, ts, frame, detector.Name(), score, live.Get())
 		}
 		if printDiffs {
 			fmt.Printf("%s %s score: %.4f\n", ts.Format("15:04:05.000"), detector.Name(), score)
@@ -371,66 +358,6 @@ func weatherCoordinates() (lat, lon float64) {
 	return lat, lon
 }
 
-// sendAlarm makes the low quality GIF of the alarm with a code under it, and
-// saves the HD one in gifs under that code for /hd, then hands the message to
-// the queue. Without a store, or if the HD GIF can't be made or saved, the
-// code is left out. hdFrames are the
-// frames of the HD GIF.
-func sendAlarm(bot *telegram.Bot, queued *alarmqueue.Alarm, gifs *gif.Store, hdFrames []image.Image, caption string, v config.Values) {
-	lowFrames := gif.Shrink(everyNth(hdFrames, v.LowGIFFrameStep), v.LowGIFWidth)
-	low, err := gif.Encode(lowFrames, v.LowGIFFrameDelay, false)
-	if err != nil {
-		fmt.Fprintln(os.Stderr, "gif:", err)
-		queued.Ready(func() error { return bot.SendMessage(caption) })
-		return
-	}
-
-	// the HD GIF is saved before the alarm goes out, so the code works at once
-	if gifs != nil {
-		if code, err := saveHD(gifs, hdFrames, v); err != nil {
-			fmt.Fprintln(os.Stderr, "hd gif:", err)
-		} else {
-			caption += fmt.Sprintf("\nHD version: /hd %s", code)
-		}
-	}
-	queued.Ready(func() error { return bot.SendAnimation(low, caption) })
-}
-
-// saveHD encodes frames as the HD GIF and saves it, returning its code.
-func saveHD(gifs *gif.Store, frames []image.Image, v config.Values) (string, error) {
-	hd, err := gif.Encode(frames, v.HDGIFFrameDelay, v.HDGIFDither)
-	if err != nil {
-		return "", err
-	}
-	code, err := gif.NewCode()
-	if err != nil {
-		return "", err
-	}
-	return code, gifs.Save(code, hd)
-}
-
-// pendingAlarm is a detection whose alarm is sent once due has passed.
-type pendingAlarm struct {
-	at, due  time.Time
-	detector string
-	score    float64
-	queued   *alarmqueue.Alarm
-}
-
-// envPositiveInt returns the whole number, at least 1, in the variable key,
-// or def if it is not set.
-func envPositiveInt(key string, def int) int {
-	v := os.Getenv(key)
-	if v == "" {
-		return def
-	}
-	n, err := strconv.Atoi(strings.TrimSpace(v))
-	if err != nil || n < 1 {
-		panic(fmt.Errorf("%s: %q is not a whole number of at least 1", key, v))
-	}
-	return n
-}
-
 // envThreshold returns the alarm threshold in the variable key, or def if it
 // is not set.
 func envThreshold(key string, def float64) float64 {
@@ -443,30 +370,4 @@ func envThreshold(key string, def float64) float64 {
 		panic(fmt.Errorf("%s: %q is not a number between 0 and 1", key, v))
 	}
 	return t
-}
-
-// lastFrames returns the last n frames of history followed by frame, so n
-// counts frame itself. It returns fewer if the history is shorter.
-func lastFrames(history []image.Image, frame image.Image, n int) []image.Image {
-	if n < 1 {
-		n = 1
-	}
-	if len(history) > n-1 {
-		history = history[len(history)-(n-1):]
-	}
-	out := make([]image.Image, 0, len(history)+1)
-	out = append(out, history...)
-	return append(out, frame)
-}
-
-// everyNth returns one frame out of every n, always keeping the last one.
-func everyNth(frames []image.Image, n int) []image.Image {
-	if n <= 1 {
-		return frames
-	}
-	out := make([]image.Image, 0, (len(frames)+n-1)/n)
-	for i := (len(frames) - 1) % n; i < len(frames); i += n {
-		out = append(out, frames[i])
-	}
-	return out
 }

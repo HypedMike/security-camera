@@ -16,9 +16,15 @@ import (
 	"security_camera/lib/streaming"
 )
 
+// The longest alarm GIF and the most frames a second it can have: the frames
+// of a GIF wait in memory until it is encoded.
+const (
+	maxAlarmGIFSeconds = 30
+	maxAlarmGIFFPS     = 10
+)
+
 // editableConfig is the JSON /edit_config sends and accepts. Times are in
-// seconds; the GIF delays are in hundredths of a second, as in the config
-// package.
+// seconds.
 type editableConfig struct {
 	Detector            string  `json:"detector"`
 	BackgroundThreshold float64 `json:"background_threshold"`
@@ -29,19 +35,13 @@ type editableConfig struct {
 
 	StackFrames     int `json:"stack_frames"`
 	DetectionFrames int `json:"detection_frames"`
-	GIFFrames       int `json:"gif_frames"`
 
 	AlarmCooldownSeconds float64 `json:"alarm_cooldown_seconds"`
-	AlarmDelaySeconds    float64 `json:"alarm_delay_seconds"`
 
-	HDGIFFrameStep  int  `json:"hd_gif_frame_step"`
-	HDGIFFrameDelay int  `json:"hd_gif_frame_delay"`
-	HDGIFWidth      int  `json:"hd_gif_width"`
-	HDGIFDither     bool `json:"hd_gif_dither"`
-
-	LowGIFFrameStep  int `json:"low_gif_frame_step"`
-	LowGIFFrameDelay int `json:"low_gif_frame_delay"`
-	LowGIFWidth      int `json:"low_gif_width"`
+	AlarmGIFSeconds float64 `json:"alarm_gif_seconds"`
+	AlarmGIFFPS     int     `json:"alarm_gif_fps"`
+	HDGIFWidth      int     `json:"hd_gif_width"`
+	HDGIFDither     bool    `json:"hd_gif_dither"`
 
 	SnapJPEGQuality int `json:"snap_jpeg_quality"`
 }
@@ -58,19 +58,13 @@ func currentConfig(mon *monitor.Monitor, stream *streaming.Stream, live *config.
 
 		StackFrames:     stream.History(),
 		DetectionFrames: mon.DetectionFrames(),
-		GIFFrames:       mon.GIFFrames(),
 
 		AlarmCooldownSeconds: mon.Cooldown().Seconds(),
-		AlarmDelaySeconds:    v.AlarmDelay.Seconds(),
 
-		HDGIFFrameStep:  v.HDGIFFrameStep,
-		HDGIFFrameDelay: v.HDGIFFrameDelay,
+		AlarmGIFSeconds: v.AlarmGIFSpan.Seconds(),
+		AlarmGIFFPS:     v.AlarmGIFFPS,
 		HDGIFWidth:      v.HDGIFWidth,
 		HDGIFDither:     v.HDGIFDither,
-
-		LowGIFFrameStep:  v.LowGIFFrameStep,
-		LowGIFFrameDelay: v.LowGIFFrameDelay,
-		LowGIFWidth:      v.LowGIFWidth,
 
 		SnapJPEGQuality: v.SnapJPEGQuality,
 	}
@@ -97,30 +91,32 @@ func (c editableConfig) validate(detectors []string) error {
 	if c.DetectionFrames < 2 {
 		return errors.New("detection_frames: must be at least 2")
 	}
-	if c.GIFFrames < 2 {
-		return errors.New("gif_frames: must be at least 2")
-	}
-	if c.StackFrames < max(c.DetectionFrames, c.GIFFrames) {
-		return fmt.Errorf("stack_frames: must be at least %d, the larger of detection_frames and gif_frames", max(c.DetectionFrames, c.GIFFrames))
+	if c.StackFrames < c.DetectionFrames {
+		return fmt.Errorf("stack_frames: must be at least %d, detection_frames", c.DetectionFrames)
 	}
 	for _, f := range []struct {
 		name string
 		v    float64
-	}{{"alarm_cooldown_seconds", c.AlarmCooldownSeconds}, {"alarm_delay_seconds", c.AlarmDelaySeconds}} {
+	}{{"alarm_cooldown_seconds", c.AlarmCooldownSeconds}} {
 		if math.IsNaN(f.v) || math.IsInf(f.v, 0) || f.v < 0 {
 			return fmt.Errorf("%s: must be 0 or more", f.name)
 		}
+	}
+	if math.IsNaN(c.AlarmGIFSeconds) || c.AlarmGIFSeconds < 0.5 || c.AlarmGIFSeconds > maxAlarmGIFSeconds {
+		return fmt.Errorf("alarm_gif_seconds: must be between 0.5 and %d", maxAlarmGIFSeconds)
 	}
 	for _, f := range []struct {
 		name string
 		v    int
 	}{
-		{"hd_gif_frame_step", c.HDGIFFrameStep}, {"hd_gif_frame_delay", c.HDGIFFrameDelay}, {"hd_gif_width", c.HDGIFWidth},
-		{"low_gif_frame_step", c.LowGIFFrameStep}, {"low_gif_frame_delay", c.LowGIFFrameDelay}, {"low_gif_width", c.LowGIFWidth},
+		{"alarm_gif_fps", c.AlarmGIFFPS}, {"hd_gif_width", c.HDGIFWidth},
 	} {
 		if f.v < 1 {
 			return fmt.Errorf("%s: must be at least 1", f.name)
 		}
+	}
+	if c.AlarmGIFFPS > maxAlarmGIFFPS {
+		return fmt.Errorf("alarm_gif_fps: must be at most %d", maxAlarmGIFFPS)
 	}
 	if c.SnapJPEGQuality < 1 || c.SnapJPEGQuality > 100 {
 		return errors.New("snap_jpeg_quality: must be between 1 and 100")
@@ -153,17 +149,12 @@ func applyConfig(payload string, mon *monitor.Monitor, stream *streaming.Stream,
 	mon.SetCooldown(secondsToDuration(c.AlarmCooldownSeconds))
 	stream.SetHistory(c.StackFrames)
 	mon.SetDetectionFrames(c.DetectionFrames)
-	mon.SetGIFFrames(c.GIFFrames)
 	live.Set(config.Values{
-		AlarmDelay:       secondsToDuration(c.AlarmDelaySeconds),
-		HDGIFFrameStep:   c.HDGIFFrameStep,
-		HDGIFFrameDelay:  c.HDGIFFrameDelay,
-		HDGIFWidth:       c.HDGIFWidth,
-		HDGIFDither:      c.HDGIFDither,
-		LowGIFFrameStep:  c.LowGIFFrameStep,
-		LowGIFFrameDelay: c.LowGIFFrameDelay,
-		LowGIFWidth:      c.LowGIFWidth,
-		SnapJPEGQuality:  c.SnapJPEGQuality,
+		AlarmGIFSpan:    secondsToDuration(c.AlarmGIFSeconds),
+		AlarmGIFFPS:     c.AlarmGIFFPS,
+		HDGIFWidth:      c.HDGIFWidth,
+		HDGIFDither:     c.HDGIFDither,
+		SnapJPEGQuality: c.SnapJPEGQuality,
 	})
 	return nil
 }

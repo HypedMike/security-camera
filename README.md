@@ -12,20 +12,20 @@ It watches the camera, and when it sees motion above a threshold it sends a shor
   - `background` (default): learns what the empty scene looks like and alarms when a moving blob covers at least `BACKGROUND_THRESHOLD` of the frame. Picks up small or distant movement and ignores lights switching on.
   - `difference`: compares the last frames pixel by pixel and alarms when the average difference reaches `DIFFERENCE_THRESHOLD`.
   - `background-rust`: the same algorithm as `background`, written in Rust ([`rust-lib/detection/`](rust-lib/detection/)) and about 2x faster. Only in builds made with `-tags rust` (`./build_linux` and `./build_macos` do it when `cargo` is installed). Its threshold is `BACKGROUND_RUST_THRESHOLD` (default: the `background` one) or `background_rust_threshold` in `/edit_config`.
-- **Telegram alerts**: the alarm is sent as a tiny, low quality animated GIF (about 5 s, 160x120) with a timestamp, the detector, its score and a code. Send `/hd <code>` to get the good quality version (640x480, dithered). The HD GIFs are saved in `gifs/`, at most 1 GB: past that the oldest are deleted and their code stops working. The alarm is sent 3 s after the motion is detected, so the GIF also shows what happens after the first detection. Alarms are rate-limited (5 s cooldown), and the alarm messages go out through a queue that sends at most `TELEGRAM_MESSAGES_PER_MINUTE` (default 2) per minute, so a burst of motion does not flood the chat.
+- **Telegram alerts**: the moment motion is detected a message goes out with the time, the detector, its score and a code. In the background the program records the next 5 s of the camera at 2 frames a second (640x480, dithered) and saves them as a GIF in `gifs/`, at most 1 GB: past that the oldest are deleted. React to the alarm message with 👍 and the GIF is sent as a reply (or send `/hd <code>`). Alarms are only spaced by a 5 s cooldown, there is no cap per minute. In a group the bot must be an administrator to see reactions.
 - **Telegram commands**, accepted only from the configured chat:
 
   | Command   | What it does                                          |
   |-----------|-------------------------------------------------------|
   | `/snap`   | Sends the next camera frame as a photo                |
   | `/info`   | Reports machine state (system) and camera/alarm state |
-  | `/queue`  | Lists the latest 10 alarms: sent (and when), waiting in the queue or still being processed |
-  | `/hd <code>` | Sends the HD version of the alarm GIF with that code |
+  | `/alarms` | Lists the latest 10 alarms: whether their GIF is recording, ready or sent (`/queue` still works) |
+  | `/hd <code>` | Sends the GIF of the alarm with that code, the same as a 👍 on the alarm message |
   | `/app`    | Sends a button that opens the mini app (live view and motion graph) |
   | `/update` | Pulls the latest code, rebuilds and restarts          |
   | `/pause`  | Stops sending alarms (the camera keeps running)       |
   | `/resume` | Starts sending alarms again                           |
-  | `/edit_config [json]` | Without arguments, sends all the settings as JSON (detector, thresholds, frame counts, cooldown, delay, GIF and snapshot quality). Followed by that JSON, changes them until the next restart; keys left out keep their value and nothing changes if any value is invalid |
+  | `/edit_config [json]` | Without arguments, sends all the settings as JSON (detector, thresholds, frame counts, cooldown, alarm GIF length, speed and quality, snapshot quality). Followed by that JSON, changes them until the next restart; keys left out keep their value and nothing changes if any value is invalid |
 
 - **System alarms**: every minute the program checks the machine and warns on Telegram when the disk is 90% full or more, when the CPU stays at 90% or more for 5 minutes, when a temperature sensor reaches 80°C, and when the connection to Telegram is lost. Each problem is reported once when it starts and once when it is over. A lost connection can only be reported when it comes back ("Connection back after 12m0s (lost at 03:14)"), and a warning that cannot be sent is kept and sent as soon as the connection is back. The limits are in [`lib/config/config.go`](lib/config/config.go); values the machine cannot read (e.g. temperature on macOS) are skipped.
 - **Daily "i'm alive" message**: every day at 9:00 (machine local time) the bot says it is running, how many alarms there were during the night, from 20:00 the evening before (or that there was no movement), and a suggestion based on today's forecast (for `WEATHER_LATITUDE`/`WEATHER_LONGITUDE`, Lucca if unset) and temperatures from [Open-Meteo](https://open-meteo.com/) (no key needed). On a sunny Sunday it adds a hike suggestion.
@@ -79,14 +79,13 @@ Settings live in `.env` (see [`.env.example`](.env.example)).
 | `CAMERA_ID`               | no       | Camera to use; chosen and saved on first run                        |
 | `LIVE_STREAM_GRAPH`       | no       | `1`/`true` serves the live graph on port 8080                       |
 | `PRINT_DIFFERENCES`       | no       | Print every frame's motion score to the console                     |
-| `TELEGRAM_MESSAGES_PER_MINUTE` | no  | Most alarm messages sent to Telegram per minute, default `2`; the others wait in the queue, see `/queue` |
 | `PRINT_ALARMS`            | no       | Print a line to the console whenever an alarm is set off            |
 | `PRINT_TELEGRAM_MESSAGES` | no       | Print every Telegram message received from the chat                 |
 | `MINI_APP_URL`            | no       | Public https address of the mini app; empty turns it off            |
 
 Flag: `-fetch-camera` lists the cameras again and lets you choose a different one.
 
-Fixed settings (cooldown, GIF speed, size and frame step for both qualities, the GIF storage limit, resolution 640x480, history length) are in [`lib/config/config.go`](lib/config/config.go).
+Fixed settings (cooldown, alarm GIF length and frames a second, size, the GIF storage limit, resolution 640x480, history length) are in [`lib/config/config.go`](lib/config/config.go).
 
 ## Detectors and thresholds
 
