@@ -18,7 +18,6 @@ func newTestSettings() (*monitor.Monitor, *streaming.Stream, *config.Live, []str
 		detection.NameDifference: config.DifferenceThreshold,
 	}, config.AlarmCooldown)
 	mon.SetDetectionFrames(config.DetectionFrames)
-	mon.SetGIFFrames(config.GIFFrames)
 	stream := streaming.New(nil, streaming.Options{History: config.StreamHistory})
 	return mon, stream, config.NewLive(), []string{detection.NameBackground, detection.NameDifference}
 }
@@ -37,17 +36,17 @@ func TestEditConfigRoundTrip(t *testing.T) {
 func TestEditConfigApplies(t *testing.T) {
 	mon, stream, live, names := newTestSettings()
 	err := applyConfig(`{"detector": "Difference", "difference_threshold": 0.2, "alarm_cooldown_seconds": 12.5,
-		"alarm_delay_seconds": 1, "paused": true, "stack_frames": 400, "gif_frames": 60, "hd_gif_dither": false, "snap_jpeg_quality": 50}`, mon, stream, live, names)
+		"alarm_gif_seconds": 8, "alarm_gif_fps": 4, "paused": true, "stack_frames": 400, "hd_gif_dither": false, "snap_jpeg_quality": 50}`, mon, stream, live, names)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if mon.Detector() != detection.NameDifference || mon.ThresholdOf(detection.NameDifference) != 0.2 || !mon.Paused() {
 		t.Errorf("monitor: detector %s threshold %v paused %v", mon.Detector(), mon.ThresholdOf(detection.NameDifference), mon.Paused())
 	}
-	if mon.Cooldown() != 12500*time.Millisecond || stream.History() != 400 || mon.GIFFrames() != 60 {
-		t.Errorf("cooldown %v history %d gif frames %d", mon.Cooldown(), stream.History(), mon.GIFFrames())
+	if mon.Cooldown() != 12500*time.Millisecond || stream.History() != 400 {
+		t.Errorf("cooldown %v history %d", mon.Cooldown(), stream.History())
 	}
-	if v := live.Get(); v.AlarmDelay != time.Second || v.HDGIFDither || v.SnapJPEGQuality != 50 || v.HDGIFWidth != config.HDGIFWidth {
+	if v := live.Get(); v.AlarmGIFSpan != 8*time.Second || v.AlarmGIFFPS != 4 || v.HDGIFDither || v.SnapJPEGQuality != 50 || v.HDGIFWidth != config.HDGIFWidth {
 		t.Errorf("live values: %+v", v)
 	}
 }
@@ -62,7 +61,10 @@ func TestEditConfigRejectsWithoutChanging(t *testing.T) {
 		`{"hd_gif_width": 0}`:                      "hd_gif_width",
 		`{"snap_jpeg_quality": 101}`:               "snap_jpeg_quality",
 		`{"no_such_setting": 1}`:                   "unknown field",
-		`{"alarm_delay_seconds": "x"}`:             "not valid settings JSON",
+		`{"alarm_gif_seconds": "x"}`:               "not valid settings JSON",
+		`{"alarm_gif_seconds": 0}`:                 "alarm_gif_seconds",
+		`{"alarm_gif_fps": 0}`:                     "alarm_gif_fps",
+		`{"alarm_gif_fps": 99}`:                    "alarm_gif_fps",
 		`{"paused": true} trailing`:                "not valid settings JSON",
 		`not json`:                                 "not valid settings JSON",
 		`{"paused": true, "snap_jpeg_quality": 0}`: "snap_jpeg_quality",

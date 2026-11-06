@@ -10,7 +10,7 @@ import (
 	"strings"
 	"sync/atomic"
 
-	"security_camera/lib/alarmqueue"
+	"security_camera/lib/alarmlog"
 	"security_camera/lib/config"
 	"security_camera/lib/detection"
 	"security_camera/lib/gif"
@@ -21,8 +21,8 @@ import (
 	"security_camera/lib/update"
 )
 
-// queueShown is how many alarms /queue lists.
-const queueShown = 10
+// alarmsShown is how many alarms /alarms lists.
+const alarmsShown = 10
 
 // commandState is what the Telegram commands hand over to the main loop.
 type commandState struct {
@@ -40,13 +40,13 @@ type commandState struct {
 //	/pause   stops sending alarms
 //	/resume  starts sending alarms again
 //	/edit_config [json]  sends all the settings as JSON, or changes them to the JSON that follows
-//	/queue   lists the latest alarms: sent (and when), waiting or still being processed
-//	/hd <code>   sends the HD version of the alarm GIF with that code
+//	/alarms  lists the latest alarms and whether their GIF is recorded and sent (/queue is the old name)
+//	/hd <code>   sends the GIF of the alarm with that code, like a thumbs up on the alarm message
 //	/app     opens the mini app with the live view and the motion graph
 //	/update  pulls, rebuilds and restarts the program
 //
 // cancel stops the stream, which is how /update makes main restart.
-func initTelegramCommands(ctx context.Context, cancel context.CancelFunc, bot *telegram.Bot, mon *monitor.Monitor, stream *streaming.Stream, detectors map[string]detection.Detector, gifs *gif.Store, live *config.Live, alarms *alarmqueue.Queue, miniAppURL string, state *commandState) {
+func initTelegramCommands(ctx context.Context, cancel context.CancelFunc, bot *telegram.Bot, mon *monitor.Monitor, stream *streaming.Stream, detectors map[string]detection.Detector, gifs *gif.Store, live *config.Live, alarms *alarmlog.Log, miniAppURL string, state *commandState) {
 	reply := func(command, text string) {
 		if err := bot.SendMessage(text); err != nil {
 			fmt.Fprintf(os.Stderr, "%s: %v\n", command, err)
@@ -86,29 +86,29 @@ func initTelegramCommands(ctx context.Context, cancel context.CancelFunc, bot *t
 			go reply("edit_config", "Settings changed (until the next restart):\n"+configJSON(currentConfig(mon, stream, live)))
 		},
 
-		"queue": func(telegram.Message) {
-			go reply("queue", alarms.Report(queueShown))
+		"alarms": func(telegram.Message) {
+			go reply("alarms", alarms.Report(alarmsShown))
 		},
 
 		"hd": func(m telegram.Message) {
 			args := m.Args()
 			if len(args) == 0 {
-				go reply("hd", "Usage: /hd <code>, the code is under the alarm GIF.")
+				go reply("hd", "Usage: /hd <code>, the code is in the alarm message.")
 				return
 			}
 			if gifs == nil {
-				go reply("hd", "HD GIFs are not being saved.")
+				go reply("hd", "The alarm GIFs are not being saved.")
 				return
 			}
 			// reading and uploading the GIF takes a while, don't hold up the other messages
 			go func() {
 				data, err := gifs.Get(args[0])
 				if errors.Is(err, gif.ErrNotFound) {
-					reply("hd", fmt.Sprintf("No HD GIF with code %q. Old ones are deleted to keep the storage under the limit.", args[0]))
+					reply("hd", fmt.Sprintf("No GIF with code %q: it may still be recording, or an old one deleted to keep the storage under the limit.", args[0]))
 					return
 				}
 				if err == nil {
-					err = bot.SendAnimation(data, "HD version of "+strings.ToLower(args[0]))
+					err = bot.SendAnimation(data, "GIF "+strings.ToLower(args[0]))
 				}
 				if err != nil {
 					fmt.Fprintf(os.Stderr, "hd: %v\n", err)
@@ -149,6 +149,8 @@ func initTelegramCommands(ctx context.Context, cancel context.CancelFunc, bot *t
 			}()
 		},
 	}
+
+	commands["queue"] = commands["alarms"]
 
 	bot.AddListener(func(m telegram.Message) {
 		if run, ok := commands[m.Command()]; ok {
