@@ -14,14 +14,11 @@ import (
 	"security_camera/lib/telegram"
 )
 
-// thumbsUp is the reaction that asks for the GIF of an alarm.
-const thumbsUp = "👍"
-
 // startAlarm tells about the alarm at once and, in the background, records
 // the GIF of it: the frame that set it off and the ones of the next
 // v.AlarmGIFSpan, at v.AlarmGIFFPS a second. The GIF is saved in gifs under
 // the code in the message, and goes out when somebody reacts to the message
-// with a thumbs up. frame is only valid until the caller returns.
+// with any emoji. frame is only valid until the caller returns.
 func startAlarm(bot *telegram.Bot, log *alarmlog.Log, rec *recorder.Recorder, gifs *gif.Store, at time.Time, frame image.Image, detector string, score float64, v config.Values) {
 	// without a code the alarm still goes out, it just has no GIF
 	code, codeErr := gif.NewCode()
@@ -29,7 +26,7 @@ func startAlarm(bot *telegram.Bot, log *alarmlog.Log, rec *recorder.Recorder, gi
 
 	text := fmt.Sprintf("Alarm: motion detected at %s (%s score %.4f)", at.Format("15:04:05"), detector, score)
 	if codeErr == nil && gifs != nil {
-		text += fmt.Sprintf("\nReact with %s to get the GIF (or send /hd %s)", thumbsUp, code)
+		text += fmt.Sprintf("\nReact with any emoji to get the GIF (or send /hd %s)", code)
 	}
 	// the message must not wait for the camera loop, nor the recording for the message
 	go func() {
@@ -93,11 +90,9 @@ func sendGIF(bot *telegram.Bot, gifs *gif.Store, a *alarmlog.Alarm) {
 	}
 }
 
-// onReaction sends the GIF of an alarm when its message gets a thumbs up.
+// onReaction sends the GIF of an alarm when its message gets a reaction, any
+// emoji will do.
 func onReaction(bot *telegram.Bot, log *alarmlog.Log, gifs *gif.Store, r telegram.Reaction) {
-	if r.Emoji != thumbsUp {
-		return
-	}
 	a, action := log.Request(r.MessageID)
 	switch action {
 	case alarmlog.Send:
