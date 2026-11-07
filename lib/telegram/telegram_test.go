@@ -37,7 +37,14 @@ func TestSendMessage(t *testing.T) {
 func TestSendAnimation(t *testing.T) {
 	var gotPath, chat, caption string
 	var file []byte
+	var actions []string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasSuffix(r.URL.Path, "/sendChatAction") {
+			var p map[string]string
+			json.NewDecoder(r.Body).Decode(&p)
+			actions = append(actions, p["action"])
+			return
+		}
 		gotPath = r.URL.Path
 		if err := r.ParseMultipartForm(1 << 20); err != nil {
 			t.Error(err)
@@ -60,6 +67,9 @@ func TestSendAnimation(t *testing.T) {
 	}
 	if gotPath != "/botTOKEN/sendAnimation" || chat != "-42" || caption != "cap" || string(file) != "GIF89a" {
 		t.Errorf("unexpected request: %s %q %q %q", gotPath, chat, caption, file)
+	}
+	if len(actions) != 1 || actions[0] != "typing" {
+		t.Errorf("chat actions %v, want [typing]", actions)
 	}
 }
 
@@ -257,6 +267,9 @@ func TestSendReturnsMessageID(t *testing.T) {
 func TestSendAnimationReply(t *testing.T) {
 	var reply string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasSuffix(r.URL.Path, "/sendChatAction") {
+			return
+		}
 		r.ParseMultipartForm(1 << 20)
 		reply = r.FormValue("reply_parameters")
 	}))

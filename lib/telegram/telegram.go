@@ -250,13 +250,21 @@ func (b *Bot) Reachable(ctx context.Context) bool {
 	return true
 }
 
+// sendTyping shows "typing…" in the chat while a GIF is on its way. It is only
+// a courtesy: if it fails the GIF is sent all the same.
+func (b *Bot) sendTyping() {
+	b.post("sendChatAction", map[string]string{"chat_id": b.chatID, "action": "typing"})
+}
+
 // SendAnimation uploads a GIF to the configured chat with an optional caption.
 func (b *Bot) SendAnimation(gif []byte, caption string) error {
+	b.sendTyping()
 	return b.upload("sendAnimation", "animation", "alarm.gif", gif, caption, 0)
 }
 
 // SendAnimationReply is SendAnimation as a reply to the message with id replyTo.
 func (b *Bot) SendAnimationReply(gif []byte, caption string, replyTo int) error {
+	b.sendTyping()
 	return b.upload("sendAnimation", "animation", "alarm.gif", gif, caption, replyTo)
 }
 
