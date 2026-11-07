@@ -375,6 +375,9 @@ func (b *Bot) Run(ctx context.Context) error {
 		}
 		for _, u := range updates {
 			offset = u.UpdateID + 1
+			if r := u.MessageReaction; r != nil {
+				fmt.Fprintf(os.Stderr, "telegram: reaction update on message %d in chat %d (configured chat %s)\n", r.MessageID, r.Chat.ID, b.chatID)
+			}
 			if r := u.MessageReaction; r != nil && strconv.FormatInt(r.Chat.ID, 10) == b.chatID {
 				from := r.User.Username
 				if from == "" {
