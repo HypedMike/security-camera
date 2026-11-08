@@ -18,7 +18,7 @@ It watches the camera, and when it sees motion above a threshold it sends a shor
   |-----------|-------------------------------------------------------|
   | `/snap`   | Sends the next camera frame as a photo                |
   | `/info`   | Reports machine state (system) and camera/alarm state |
-  | `/alarms` | Lists the latest 10 alarms: whether their GIF is recording, ready or sent (`/queue` still works) |
+  | `/alarms` | Lists the latest 10 alarms: whether their GIF is recording, ready or sent (`/queue` still works). The alarm log is written in Rust ([`rust-lib/alarmlog/`](rust-lib/alarmlog/)) |
   | `/hd <code>` | Sends the GIF of the alarm with that code, the same as a 👍 on the alarm message |
   | `/app`    | Sends a button that opens the mini app (live view and motion graph) |
   | `/update` | Pulls the latest code, rebuilds and restarts          |
@@ -38,7 +38,7 @@ It watches the camera, and when it sees motion above a threshold it sends a shor
 - Linux with a V4L2 camera (`/dev/video*`)
 - Go 1.24 or newer
 - A C toolchain, because the camera driver needs cgo: `sudo apt install build-essential linux-libc-dev`
-- Rust (https://rustup.rs), for the background detector and the Rust GIF encoder
+- Rust (https://rustup.rs), for the background detector, the alarm log and the Rust GIF encoder
 - A Telegram bot token and your chat id (see below)
 
 ## Setup

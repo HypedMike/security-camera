@@ -3,6 +3,10 @@
 version = 4
 
 [[package]]
+name = "alarmlog"
+version = "0.1.0"
+
+[[package]]
 name = "detection"
 version = "0.1.0"
 
@@ -14,6 +18,7 @@ version = "0.1.0"
 name = "native"
 version = "0.1.0"
 dependencies = [
+ "alarmlog",
  "detection",
  "gif",
 ]

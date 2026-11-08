@@ -9,5 +9,6 @@ edition = "2024"
 crate-type = ["staticlib"]
 
 [dependencies]
+alarmlog = { path = "../alarmlog" }
 detection = { path = "../detection" }
 gif = { path = "../gif" }
