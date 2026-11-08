@@ -17,6 +17,12 @@ import (
 // from the camera scores the same as a small object anywhere, however still
 // the rest of the scene is.
 //
+// A pixel that stays changed but steady for Still frames (an object that
+// stopped, or the "ghost" left where an object stood while the scene was
+// learned) is taken into the scene at once, so the score drops in a couple
+// of seconds instead of fading out over a minute and setting off an alarm
+// every cooldown.
+//
 // When more than Lighting of the frame changes at once (a light switched on,
 // the camera adjusting its exposure) the frame scores 0 and the model is
 // learned again for Settle frames. The returned score is the Persist-th
@@ -41,6 +47,9 @@ type Background struct {
 	// Settle is how many frames the model is learned for, without scoring,
 	// at the start and after a lighting change.
 	Settle int
+	// Still is how many frames a changed pixel must stay within MinDiff of
+	// the same brightness before it becomes part of the scene; 0 never.
+	Still int
 	// Persist and Window: see the type documentation.
 	Persist, Window int
 
@@ -50,6 +59,8 @@ type Background struct {
 	mean, vari  []float32
 	changed     []bool
 	keep        []bool
+	ref         []float32 // brightness a changed pixel has held steady at
+	still       []int32   // frames it has held it for
 	stack       []int32
 	settle      int
 	scores      []float64
@@ -66,6 +77,7 @@ func NewBackground() *Background {
 		SlowAlpha: 0.002,
 		Lighting:  0.5,
 		Settle:    10,
+		Still:     60,
 		Persist:   3,
 		Window:    5,
 	}
@@ -116,6 +128,7 @@ func (d *Background) Score(frame image.Image, _ []image.Image) (float64, error) 
 
 	if float64(count) > d.Lighting*float64(n) {
 		d.settle = d.Settle
+		clear(d.still)
 		for i, g := range d.gray {
 			d.learn(i, g, settleAlpha)
 		}
@@ -123,14 +136,27 @@ func (d *Background) Score(frame image.Image, _ []image.Image) (float64, error) 
 	}
 
 	alpha, slow := float32(d.Alpha), float32(d.SlowAlpha)
+	minDiff := float32(d.MinDiff)
 	for i, g := range d.gray {
-		if d.changed[i] {
-			// only the mean: learning the variance from the object itself
-			// would hide it within seconds
-			d.mean[i] += slow * (g - d.mean[i])
-		} else {
+		if !d.changed[i] {
+			d.still[i] = 0
 			d.learn(i, g, alpha)
+			continue
 		}
+		if d.still[i] > 0 && abs32(g-d.ref[i]) <= minDiff {
+			d.still[i]++
+		} else {
+			d.ref[i], d.still[i] = g, 1
+		}
+		if d.Still > 0 && int(d.still[i]) >= d.Still {
+			// steady for long enough: it is the scene now
+			d.mean[i], d.vari[i], d.still[i] = g, initVariance, 0
+			d.changed[i] = false
+			continue
+		}
+		// only the mean: learning the variance from the object itself
+		// would hide it within seconds
+		d.mean[i] += slow * (g - d.mean[i])
 	}
 
 	d.despeckle()
@@ -152,6 +178,8 @@ func (d *Background) load(frame image.Image) {
 		d.tmp = make([]float32, n)
 		d.changed = make([]bool, n)
 		d.keep = make([]bool, n)
+		d.ref = make([]float32, n)
+		d.still = make([]int32, n)
 		d.mean, d.vari = nil, nil
 	}
 	if w == 0 || h == 0 {
@@ -224,8 +252,16 @@ func (d *Background) start() {
 		d.vari[i] = initVariance
 	}
 	d.settle = d.Settle
+	clear(d.still)
 	d.scores = make([]float64, max(d.Window, 1))
 	d.next = 0
+}
+
+func abs32(x float32) float32 {
+	if x < 0 {
+		return -x
+	}
+	return x
 }
 
 func (d *Background) learn(i int, g, alpha float32) {

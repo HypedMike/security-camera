@@ -75,13 +75,49 @@ fn lighting() {
 }
 
 #[test]
-fn still_object_stays_detected() {
+fn still_object_absorbed() {
     let mut rng = Rng(4);
     let mut d = Background::new();
     warm(&mut d, &mut rng);
-    for i in 0..300 {
+    // detected for a while, then taken into the scene
+    for i in 0..d.still - d.window {
         let s = score(&mut d, &scene(&mut rng, 300, 200, 40, 0));
         assert!(i < 5 || s != 0.0, "still object forgotten after {i} frames");
+    }
+    for _ in 0..2 * d.window {
+        score(&mut d, &scene(&mut rng, 300, 200, 40, 0));
+    }
+    let s = score(&mut d, &scene(&mut rng, 300, 200, 40, 0));
+    assert_eq!(s, 0.0, "still object still scored");
+    // the spot it leaves is taken in too
+    for _ in 0..d.still + 2 * d.window {
+        score(&mut d, &scene(&mut rng, 0, 0, 0, 0));
+    }
+    assert_eq!(score(&mut d, &scene(&mut rng, 0, 0, 0, 0)), 0.0, "empty spot scored");
+    // and new motion is still detected
+    let mut s = 0.0;
+    for i in 0..5 {
+        s = score(&mut d, &scene(&mut rng, 100 + 4 * i, 100, 40, 0));
+    }
+    assert!(s != 0.0, "motion after the still object not detected");
+}
+
+#[test]
+fn no_ghost_after_activity() {
+    let mut rng = Rng(6);
+    let mut d = Background::new();
+    warm(&mut d, &mut rng);
+    for i in 0..300 {
+        score(&mut d, &scene(&mut rng, 100 + (i % 40) * 2, 100, 200, 0));
+    }
+    let mut last = None;
+    for i in 0..300 {
+        if score(&mut d, &scene(&mut rng, 0, 0, 0, 0)) > 0.0 {
+            last = Some(i);
+        }
+    }
+    if let Some(l) = last {
+        assert!(l < d.still + d.window, "empty scene still scored after {l} frames");
     }
 }
 

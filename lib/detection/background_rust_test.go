@@ -12,9 +12,13 @@ import (
 func TestBackgroundRustMatchesGo(t *testing.T) {
 	rng := rand.New(rand.NewSource(7))
 	g, r := NewBackground(), NewBackgroundRust()
-	for i := 0; i < 80; i++ {
+	for i := 0; i < 200; i++ {
 		x, size := 0, 0
-		if i >= 40 {
+		switch {
+		case i >= 120:
+			// it stops: taken into the scene
+			x, size = 300+3*120, 40
+		case i >= 40:
 			x, size = 300+3*i, 40
 		}
 		frame := scene(rng, x, 200, size, 0)

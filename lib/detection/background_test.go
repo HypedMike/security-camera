@@ -89,16 +89,60 @@ func TestBackgroundLighting(t *testing.T) {
 	}
 }
 
-func TestBackgroundStillObjectStaysDetected(t *testing.T) {
+func TestBackgroundStillObjectAbsorbed(t *testing.T) {
 	rng := rand.New(rand.NewSource(4))
 	d := NewBackground()
 	warm(t, d, rng)
 
-	// someone walks in and stands still for several seconds
-	for i := 0; i < 300; i++ {
+	// someone walks in and stands still: detected for a while, then taken
+	// into the scene instead of setting off alarms for a minute
+	for i := 0; i < d.Still-d.Window; i++ {
 		if s, _ := d.Score(scene(rng, 300, 200, 40, 0), nil); i >= 5 && s == 0 {
 			t.Fatalf("still object forgotten after %d frames", i)
 		}
+	}
+	for i := 0; i < 2*d.Window; i++ {
+		d.Score(scene(rng, 300, 200, 40, 0), nil)
+	}
+	if s, _ := d.Score(scene(rng, 300, 200, 40, 0), nil); s != 0 {
+		t.Fatalf("still object scored %v after %d frames", s, d.Still+2*d.Window)
+	}
+
+	// it walks away: the spot it left is taken into the scene too
+	for i := 0; i < d.Still+2*d.Window; i++ {
+		d.Score(scene(rng, 0, 0, 0, 0), nil)
+	}
+	if s, _ := d.Score(scene(rng, 0, 0, 0, 0), nil); s != 0 {
+		t.Fatalf("empty spot scored %v", s)
+	}
+
+	// and new motion is still detected
+	var s float64
+	for i := 0; i < 5; i++ {
+		s, _ = d.Score(scene(rng, 100+4*i, 100, 40, 0), nil)
+	}
+	if s == 0 {
+		t.Fatal("motion after the still object not detected")
+	}
+}
+
+// A big object moving about for a long time teaches the scene a little of
+// itself; once it is gone the score must drop soon, not after a minute.
+func TestBackgroundNoGhostAfterActivity(t *testing.T) {
+	rng := rand.New(rand.NewSource(6))
+	d := NewBackground()
+	warm(t, d, rng)
+	for i := 0; i < 300; i++ {
+		d.Score(scene(rng, 100+(i%40)*2, 100, 200, 0), nil)
+	}
+	last := -1
+	for i := 0; i < 300; i++ {
+		if s, _ := d.Score(scene(rng, 0, 0, 0, 0), nil); s > 0 {
+			last = i
+		}
+	}
+	if last >= d.Still+d.Window {
+		t.Fatalf("empty scene still scored after %d frames", last)
 	}
 }
 
