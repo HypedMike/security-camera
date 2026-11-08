@@ -1,5 +1,3 @@
-//go:build rust
-
 package gif
 
 /*
@@ -24,10 +22,6 @@ import (
 
 	_ "security_camera/lib/native"
 )
-
-// RustAvailable reports whether this binary was built with the Rust
-// encoder (go build -tags rust).
-const RustAvailable = true
 
 // shrinkRust is shrink implemented in Rust, see rust-lib/gif/.
 func shrinkRust(img image.Image, width int) *image.RGBA {

@@ -1,4 +1,5 @@
-//! Background-model motion detection (port of `lib/detection/background.go`).
+//! Background-model motion detection, the `background` detector of the Go
+//! program (see `lib/detection/background.go`).
 //!
 //! Each frame is shrunk to a small grayscale image and lightly blurred. Every
 //! pixel keeps a running mean and variance of its brightness; a pixel has
