@@ -101,6 +101,11 @@ const CameraChoiceTimeout = 5 * time.Second
 // EnvFile is the file the settings are loaded from and saved to.
 const EnvFile = ".env"
 
+// SettingsFile is the JSON file /edit_config saves the settings in. When it
+// exists at startup its values override the defaults (constants and .env);
+// /reset_config deletes it.
+const SettingsFile = "settings.json"
+
 // StreamHistory is how many past frames the stack keeps by default (n).
 const StreamHistory = 300
 

@@ -39,14 +39,17 @@ type commandState struct {
 //	/info    reports the state of the machine and of the program
 //	/pause   stops sending alarms
 //	/resume  starts sending alarms again
-//	/edit_config [json]  sends all the settings as JSON, or changes them to the JSON that follows
+//	/edit_config [json]  sends all the settings as JSON, or changes them to the JSON that follows (and saves them)
+//	/reset_config  goes back to the default settings and deletes the saved ones
 //	/alarms  lists the latest alarms and whether their GIF is recorded and sent (/queue is the old name)
 //	/hd <code>   sends the GIF of the alarm with that code, like a thumbs up on the alarm message
 //	/app     opens the mini app with the live view and the motion graph
 //	/update  pulls, rebuilds and restarts the program
 //
-// cancel stops the stream, which is how /update makes main restart.
-func initTelegramCommands(ctx context.Context, cancel context.CancelFunc, bot *telegram.Bot, mon *monitor.Monitor, stream *streaming.Stream, detectors map[string]detection.Detector, gifs *gif.Store, live *config.Live, alarms *alarmlog.Log, miniAppURL string, state *commandState) {
+// cancel stops the stream, which is how /update makes main restart. defaults
+// are the settings before the saved ones were applied: /reset_config goes back
+// to them.
+func initTelegramCommands(ctx context.Context, cancel context.CancelFunc, bot *telegram.Bot, mon *monitor.Monitor, stream *streaming.Stream, detectors map[string]detection.Detector, gifs *gif.Store, live *config.Live, defaults editableConfig, alarms *alarmlog.Log, miniAppURL string, state *commandState) {
 	reply := func(command, text string) {
 		if err := bot.SendMessage(text); err != nil {
 			fmt.Fprintf(os.Stderr, "%s: %v\n", command, err)
@@ -83,7 +86,20 @@ func initTelegramCommands(ctx context.Context, cancel context.CancelFunc, bot *t
 				go reply("edit_config", "Not changed: "+err.Error())
 				return
 			}
-			go reply("edit_config", "Settings changed (until the next restart):\n"+configJSON(currentConfig(mon, stream, live)))
+			cur := currentConfig(mon, stream, live)
+			if err := saveConfig(config.SettingsFile, cur); err != nil {
+				go reply("edit_config", "Settings changed, but not saved: they will be lost at the next restart ("+err.Error()+"):\n"+configJSON(cur))
+				return
+			}
+			go reply("edit_config", "Settings changed and saved in "+config.SettingsFile+":\n"+configJSON(cur))
+		},
+
+		"reset_config": func(telegram.Message) {
+			if err := resetConfig(config.SettingsFile, defaults, mon, stream, live, slices.Sorted(maps.Keys(detectors))); err != nil {
+				go reply("reset_config", "Not reset: "+err.Error())
+				return
+			}
+			go reply("reset_config", "Settings back to the defaults, "+config.SettingsFile+" deleted:\n"+configJSON(currentConfig(mon, stream, live)))
 		},
 
 		"alarms": func(telegram.Message) {

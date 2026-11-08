@@ -6,7 +6,9 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"math"
+	"os"
 	"strings"
 	"time"
 
@@ -152,6 +154,63 @@ func applyConfig(payload string, mon *monitor.Monitor, stream *streaming.Stream,
 		HDGIFDither:     c.HDGIFDither,
 		SnapJPEGQuality: c.SnapJPEGQuality,
 	})
+	return nil
+}
+
+// saveConfig writes the settings to the JSON file at path, so they survive a
+// restart. "paused" is left out: a camera that was paused must not come back
+// paused after a reboot, where nobody would notice.
+func saveConfig(path string, c editableConfig) error {
+	raw, err := json.Marshal(c)
+	if err != nil {
+		return err
+	}
+	var m map[string]any
+	if err := json.Unmarshal(raw, &m); err != nil {
+		return err
+	}
+	delete(m, "paused")
+	var buf bytes.Buffer
+	enc := json.NewEncoder(&buf)
+	enc.SetIndent("", "  ")
+	if err := enc.Encode(m); err != nil {
+		return err
+	}
+	// write a temporary file and rename it, so a crash can't leave half a file
+	tmp := path + ".tmp"
+	if err := os.WriteFile(tmp, buf.Bytes(), 0o644); err != nil {
+		return err
+	}
+	return os.Rename(tmp, path)
+}
+
+// loadSavedConfig applies the JSON file at path over the current settings. It
+// reports whether the file exists; a missing file is not an error. An invalid
+// file changes nothing.
+func loadSavedConfig(path string, mon *monitor.Monitor, stream *streaming.Stream, live *config.Live, detectors []string) (bool, error) {
+	data, err := os.ReadFile(path)
+	if errors.Is(err, fs.ErrNotExist) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	if err := applyConfig(string(data), mon, stream, live, detectors); err != nil {
+		return true, fmt.Errorf("%s: %w", path, err)
+	}
+	return true, nil
+}
+
+// resetConfig changes the settings back to defaults and deletes the JSON file
+// at path. The paused state is not a saved setting, so it stays as it is.
+func resetConfig(path string, defaults editableConfig, mon *monitor.Monitor, stream *streaming.Stream, live *config.Live, detectors []string) error {
+	defaults.Paused = mon.Paused()
+	if err := applyConfig(configJSON(defaults), mon, stream, live, detectors); err != nil {
+		return err
+	}
+	if err := os.Remove(path); err != nil && !errors.Is(err, fs.ErrNotExist) {
+		return fmt.Errorf("settings are back to the defaults but %s could not be deleted: %w", path, err)
+	}
 	return nil
 }
 
