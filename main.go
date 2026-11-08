@@ -186,6 +186,20 @@ func main() {
 
 	live := config.NewLive()
 
+	// the saved settings (settings.json, written by /edit_config) override the
+	// defaults from the constants and the .env file. A bad file is reported and
+	// ignored: it must not stop the camera
+	defaults := currentConfig(mon, stream, live)
+	if _, err := loadSavedConfig(config.SettingsFile, mon, stream, live, slices.Sorted(maps.Keys(detectors))); err != nil {
+		problem := "The saved settings were not loaded, using the defaults: " + err.Error()
+		fmt.Fprintln(os.Stderr, problem)
+		go func() {
+			if err := bot.SendMessage(problem); err != nil {
+				fmt.Fprintln(os.Stderr, "settings:", err)
+			}
+		}()
+	}
+
 	// every alarm is told at once; its GIF is recorded in the background and
 	// sent to whoever reacts to the message with a thumbs up
 	alarms := &alarmlog.Log{}
@@ -194,7 +208,7 @@ func main() {
 	})
 	bot.AddReactionListener(func(r telegram.Reaction) { onReaction(bot, alarms, gifs, r) })
 	var cmds commandState
-	initTelegramCommands(ctx, cancel, bot, mon, stream, detectors, gifs, live, alarms, miniAppURL, &cmds)
+	initTelegramCommands(ctx, cancel, bot, mon, stream, detectors, gifs, live, defaults, alarms, miniAppURL, &cmds)
 
 	stream.AddHandler(func(_ image.Image, _ []image.Image, ts time.Time) {
 		mon.Frame(ts)

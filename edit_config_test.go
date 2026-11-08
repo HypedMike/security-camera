@@ -2,6 +2,9 @@ package main
 
 import (
 	"encoding/json"
+	"errors"
+	"io/fs"
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -89,5 +92,80 @@ func TestEditConfigJSONIsValid(t *testing.T) {
 	}
 	if m["detector"] != "background" || m["alarm_cooldown_seconds"] != 5.0 {
 		t.Errorf("unexpected JSON: %v", m)
+	}
+}
+
+func TestSavedConfigSurvivesRestart(t *testing.T) {
+	path := t.TempDir() + "/settings.json"
+	mon, stream, live, names := newTestSettings()
+	if err := applyConfig(`{"detector": "difference", "alarm_gif_seconds": 8, "snap_jpeg_quality": 50, "paused": true}`, mon, stream, live, names); err != nil {
+		t.Fatal(err)
+	}
+	if err := saveConfig(path, currentConfig(mon, stream, live)); err != nil {
+		t.Fatal(err)
+	}
+
+	// a new run starts from the defaults and loads the file over them
+	mon2, stream2, live2, _ := newTestSettings()
+	found, err := loadSavedConfig(path, mon2, stream2, live2, names)
+	if err != nil || !found {
+		t.Fatalf("found %v, error %v", found, err)
+	}
+	if mon2.Detector() != detection.NameDifference || live2.Get().AlarmGIFSpan != 8*time.Second || live2.Get().SnapJPEGQuality != 50 {
+		t.Errorf("the saved settings were not applied: %s", configJSON(currentConfig(mon2, stream2, live2)))
+	}
+	if mon2.Paused() {
+		t.Error("the camera came back paused: paused must not be saved")
+	}
+}
+
+func TestLoadSavedConfigMissingOrInvalid(t *testing.T) {
+	dir := t.TempDir()
+	mon, stream, live, names := newTestSettings()
+	before := configJSON(currentConfig(mon, stream, live))
+
+	if found, err := loadSavedConfig(dir+"/none.json", mon, stream, live, names); found || err != nil {
+		t.Errorf("missing file: found %v, error %v", found, err)
+	}
+
+	bad := dir + "/bad.json"
+	if err := os.WriteFile(bad, []byte(`{"snap_jpeg_quality": 0}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if found, err := loadSavedConfig(bad, mon, stream, live, names); !found || err == nil {
+		t.Errorf("invalid file: found %v, error %v", found, err)
+	}
+	if after := configJSON(currentConfig(mon, stream, live)); after != before {
+		t.Error("an invalid file changed the settings")
+	}
+}
+
+func TestResetConfig(t *testing.T) {
+	path := t.TempDir() + "/settings.json"
+	mon, stream, live, names := newTestSettings()
+	defaults := currentConfig(mon, stream, live)
+
+	if err := applyConfig(`{"detector": "difference", "stack_frames": 400, "alarm_gif_fps": 4, "paused": true}`, mon, stream, live, names); err != nil {
+		t.Fatal(err)
+	}
+	if err := saveConfig(path, currentConfig(mon, stream, live)); err != nil {
+		t.Fatal(err)
+	}
+	if err := resetConfig(path, defaults, mon, stream, live, names); err != nil {
+		t.Fatal(err)
+	}
+
+	got := currentConfig(mon, stream, live)
+	want := defaults
+	want.Paused = true // /reset_config doesn't unpause
+	if configJSON(got) != configJSON(want) {
+		t.Errorf("after the reset:\n%s\nwant:\n%s", configJSON(got), configJSON(want))
+	}
+	if _, err := os.Stat(path); !errors.Is(err, fs.ErrNotExist) {
+		t.Errorf("the settings file is still there: %v", err)
+	}
+	// resetting with no file is fine
+	if err := resetConfig(path, defaults, mon, stream, live, names); err != nil {
+		t.Errorf("reset without a file: %v", err)
 	}
 }

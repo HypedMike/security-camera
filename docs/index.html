@@ -66,7 +66,8 @@
       <tr><td><code>/update</code></td><td>Pulls the latest code, rebuilds and restarts</td></tr>
       <tr><td><code>/pause</code></td><td>Stops sending alarms</td></tr>
       <tr><td><code>/resume</code></td><td>Starts sending alarms again</td></tr>
-      <tr><td><code>/edit_config [json]</code></td><td>Sends all the settings as JSON; send it back with <code>/edit_config</code> in front to change them until the next restart</td></tr>
+      <tr><td><code>/edit_config [json]</code></td><td>Sends all the settings as JSON; send it back with <code>/edit_config</code> in front to change them. They are saved in <code>settings.json</code> and kept after a restart</td></tr>
+      <tr><td><code>/reset_config</code></td><td>Goes back to the default settings and deletes <code>settings.json</code></td></tr>
     </table></div>
   </section>
 

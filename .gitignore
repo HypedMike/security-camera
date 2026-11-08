@@ -1,4 +1,6 @@
 .env
+settings.json
+settings.json.tmp
 temp
 securitycamera
 gifs
