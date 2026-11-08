@@ -4,9 +4,8 @@ import "image"
 
 // Names of the detectors, as used by the DETECTOR setting and /detector.
 const (
-	NameBackground     = "background"
-	NameBackgroundRust = "background-rust"
-	NameDifference     = "difference"
+	NameBackground = "background"
+	NameDifference = "difference"
 )
 
 // Detector turns each camera frame into a motion score: 0 means no motion,

@@ -1,4 +1,5 @@
-//! Background-model motion detection (port of `lib/detection/background.go`).
+//! Background-model motion detection, the `background` detector of the Go
+//! program (see `lib/detection/background.go`).
 //!
 //! Each frame is shrunk to a small grayscale image and lightly blurred. Every
 //! pixel keeps a running mean and variance of its brightness; a pixel has
@@ -6,6 +7,11 @@
 //! at least `min_diff`). Isolated changed pixels are dropped as noise and the
 //! rest are grouped into connected blobs. The score of a frame is the area of
 //! its largest blob as a fraction of the frame.
+//!
+//! A pixel that stays changed but steady for `still` frames (an object that
+//! stopped, or the "ghost" left where an object stood) is taken into the
+//! scene at once, so the score drops in a couple of seconds instead of fading
+//! out over a minute.
 //!
 //! When more than `lighting` of the frame changes at once the frame scores 0
 //! and the model is learned again for `settle` frames. The returned score is
@@ -58,6 +64,9 @@ pub struct Background {
     pub lighting: f64,
     /// Frames the model is learned for, without scoring, at start and after a lighting change.
     pub settle: usize,
+    /// Frames a changed pixel must stay within `min_diff` of the same
+    /// brightness before it becomes part of the scene; 0 never.
+    pub still: usize,
     pub persist: usize,
     pub window: usize,
 
@@ -71,6 +80,9 @@ pub struct Background {
     vari: Vec<f32>,
     changed: Vec<bool>,
     keep: Vec<bool>,
+    /// Brightness a changed pixel has held steady at, and for how many frames.
+    reference: Vec<f32>,
+    still_for: Vec<u32>,
     stack: Vec<u32>,
     learned: bool,
     settle_left: usize,
@@ -94,6 +106,7 @@ impl Background {
             slow_alpha: 0.002,
             lighting: 0.5,
             settle: 10,
+            still: 60,
             persist: 3,
             window: 5,
             w: 0,
@@ -106,6 +119,8 @@ impl Background {
             vari: Vec::new(),
             changed: Vec::new(),
             keep: Vec::new(),
+            reference: Vec::new(),
+            still_for: Vec::new(),
             stack: Vec::new(),
             learned: false,
             settle_left: 0,
@@ -155,26 +170,39 @@ impl Background {
 
         if count as f64 > self.lighting * n as f64 {
             self.settle_left = self.settle;
+            self.still_for.fill(0);
             self.learn_all(SETTLE_ALPHA);
             return Ok(self.push(0.0));
         }
 
         let alpha = self.alpha as f32;
         let slow = self.slow_alpha as f32;
-        for (((&c, &g), m), v) in self
-            .changed
-            .iter()
-            .zip(&self.gray)
-            .zip(self.mean.iter_mut())
-            .zip(self.vari.iter_mut())
-        {
-            if c {
-                // only the mean: learning the variance from the object itself
-                // would hide it within seconds
-                *m += slow * (g - *m);
-            } else {
-                learn(m, v, g, alpha);
+        let min_diff = self.min_diff as f32;
+        let still = self.still;
+        for i in 0..n {
+            let g = self.gray[i];
+            if !self.changed[i] {
+                self.still_for[i] = 0;
+                learn(&mut self.mean[i], &mut self.vari[i], g, alpha);
+                continue;
             }
+            if self.still_for[i] > 0 && (g - self.reference[i]).abs() <= min_diff {
+                self.still_for[i] += 1;
+            } else {
+                self.reference[i] = g;
+                self.still_for[i] = 1;
+            }
+            if still > 0 && self.still_for[i] as usize >= still {
+                // steady for long enough: it is the scene now
+                self.mean[i] = g;
+                self.vari[i] = INIT_VARIANCE;
+                self.still_for[i] = 0;
+                self.changed[i] = false;
+                continue;
+            }
+            // only the mean: learning the variance from the object itself
+            // would hide it within seconds
+            self.mean[i] += slow * (g - self.mean[i]);
         }
 
         self.despeckle();
@@ -200,6 +228,8 @@ impl Background {
             self.tmp = vec![0.0; n];
             self.changed = vec![false; n];
             self.keep = vec![false; n];
+            self.reference = vec![0.0; n];
+            self.still_for = vec![0; n];
             self.learned = false;
         }
         if w == 0 || h == 0 {
@@ -282,6 +312,7 @@ impl Background {
         self.vari.resize(self.gray.len(), INIT_VARIANCE);
         self.learned = true;
         self.settle_left = self.settle;
+        self.still_for.fill(0);
         self.scores = vec![0.0; self.window.max(1)];
         self.next = 0;
     }

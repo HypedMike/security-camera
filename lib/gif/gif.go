@@ -17,13 +17,8 @@ var useRust atomic.Bool
 
 // UseRust picks the implementation of Shrink and Encode: the one in Rust
 // (rust-lib/gif/) or, by default, the one in Go. They give the same pictures.
-// It fails in a build without -tags rust.
-func UseRust(on bool) error {
-	if on && !RustAvailable {
-		return errors.New("gif: this build has no Rust encoder (build with -tags rust)")
-	}
+func UseRust(on bool) {
 	useRust.Store(on)
-	return nil
 }
 
 // Encode builds an animated GIF from images. delay is the pause between

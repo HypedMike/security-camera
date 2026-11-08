@@ -7,6 +7,13 @@ import (
 	"testing"
 )
 
+// The defaults of the Rust detector (rust-lib/detection/src/lib.rs).
+const (
+	bgSettle = 10
+	bgStill  = 60
+	bgWindow = 5
+)
+
 // scene is a 640x480 gray frame with sensor noise, plus an optional square of
 // side size at (x, y) and an overall brightness shift.
 func scene(rng *rand.Rand, x, y, size int, shift int) *image.RGBA {
@@ -89,16 +96,60 @@ func TestBackgroundLighting(t *testing.T) {
 	}
 }
 
-func TestBackgroundStillObjectStaysDetected(t *testing.T) {
+func TestBackgroundStillObjectAbsorbed(t *testing.T) {
 	rng := rand.New(rand.NewSource(4))
 	d := NewBackground()
 	warm(t, d, rng)
 
-	// someone walks in and stands still for several seconds
-	for i := 0; i < 300; i++ {
+	// someone walks in and stands still: detected for a while, then taken
+	// into the scene instead of setting off alarms for a minute
+	for i := 0; i < bgStill-bgWindow; i++ {
 		if s, _ := d.Score(scene(rng, 300, 200, 40, 0), nil); i >= 5 && s == 0 {
 			t.Fatalf("still object forgotten after %d frames", i)
 		}
+	}
+	for i := 0; i < 2*bgWindow; i++ {
+		d.Score(scene(rng, 300, 200, 40, 0), nil)
+	}
+	if s, _ := d.Score(scene(rng, 300, 200, 40, 0), nil); s != 0 {
+		t.Fatalf("still object scored %v after %d frames", s, bgStill+2*bgWindow)
+	}
+
+	// it walks away: the spot it left is taken into the scene too
+	for i := 0; i < bgStill+2*bgWindow; i++ {
+		d.Score(scene(rng, 0, 0, 0, 0), nil)
+	}
+	if s, _ := d.Score(scene(rng, 0, 0, 0, 0), nil); s != 0 {
+		t.Fatalf("empty spot scored %v", s)
+	}
+
+	// and new motion is still detected
+	var s float64
+	for i := 0; i < 5; i++ {
+		s, _ = d.Score(scene(rng, 100+4*i, 100, 40, 0), nil)
+	}
+	if s == 0 {
+		t.Fatal("motion after the still object not detected")
+	}
+}
+
+// A big object moving about for a long time teaches the scene a little of
+// itself; once it is gone the score must drop soon, not after a minute.
+func TestBackgroundNoGhostAfterActivity(t *testing.T) {
+	rng := rand.New(rand.NewSource(6))
+	d := NewBackground()
+	warm(t, d, rng)
+	for i := 0; i < 300; i++ {
+		d.Score(scene(rng, 100+(i%40)*2, 100, 200, 0), nil)
+	}
+	last := -1
+	for i := 0; i < 300; i++ {
+		if s, _ := d.Score(scene(rng, 0, 0, 0, 0), nil); s > 0 {
+			last = i
+		}
+	}
+	if last >= bgStill+bgWindow {
+		t.Fatalf("empty scene still scored after %d frames", last)
 	}
 }
 
@@ -108,7 +159,7 @@ func TestBackgroundReset(t *testing.T) {
 	warm(t, d, rng)
 	d.Reset()
 	// the first frames after a reset only learn
-	for i := 0; i < d.Settle+1; i++ {
+	for i := 0; i < bgSettle+1; i++ {
 		if s, _ := d.Score(scene(rng, 300, 200, 40, 0), nil); s != 0 {
 			t.Fatalf("frame %d after reset scored %v", i, s)
 		}

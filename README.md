@@ -9,9 +9,8 @@ It watches the camera, and when it sees motion above a threshold it sends a shor
 ## Features
 
 - **Motion detection**, with interchangeable detectors (`DETECTOR` setting or `detector` in `/edit_config`):
-  - `background` (default): learns what the empty scene looks like and alarms when a moving blob covers at least `BACKGROUND_THRESHOLD` of the frame. Picks up small or distant movement and ignores lights switching on.
+  - `background` (default): learns what the empty scene looks like and alarms when a moving blob covers at least `BACKGROUND_THRESHOLD` of the frame. Picks up small or distant movement and ignores lights switching on. Written in Rust ([`rust-lib/detection/`](rust-lib/detection/)).
   - `difference`: compares the last frames pixel by pixel and alarms when the average difference reaches `DIFFERENCE_THRESHOLD`.
-  - `background-rust`: the same algorithm as `background`, written in Rust ([`rust-lib/detection/`](rust-lib/detection/)) and about 2x faster. Only in builds made with `-tags rust` (`./build_linux` and `./build_macos` do it when `cargo` is installed). Its threshold is `BACKGROUND_RUST_THRESHOLD` (default: the `background` one) or `background_rust_threshold` in `/edit_config`.
 - **Telegram alerts**: the moment motion is detected a message goes out with the time, the detector, its score and a code. In the background the program records the next 5 s of the camera at 2 frames a second (640x480, dithered) and saves them as a GIF in `gifs/`, at most 1 GB: past that the oldest are deleted. React to the alarm message with 👍 and the GIF is sent as a reply (or send `/hd <code>`). Alarms are only spaced by a 5 s cooldown, there is no cap per minute. In a group the bot must be an administrator to see reactions.
 - **Telegram commands**, accepted only from the configured chat:
 
@@ -38,6 +37,7 @@ It watches the camera, and when it sees motion above a threshold it sends a shor
 - Linux with a V4L2 camera (`/dev/video*`)
 - Go 1.24 or newer
 - A C toolchain, because the camera driver needs cgo: `sudo apt install build-essential linux-libc-dev`
+- Rust (https://rustup.rs), for the background detector and the Rust GIF encoder
 - A Telegram bot token and your chat id (see below)
 
 ## Setup
@@ -73,7 +73,7 @@ Settings live in `.env` (see [`.env.example`](.env.example)).
 | `TELEGRAM_BOT_TOKEN`      | yes      | Bot token from @BotFather                                           |
 | `TELEGRAM_CHAT_ID`        | yes      | Chat the bot talks to; messages from other chats are ignored        |
 | `DETECTOR`                | no       | Motion detector: `background` (default) or `difference`             |
-| `GIF_ENCODER`             | no       | Who shrinks and encodes the alarm GIFs: `go` (default) or `rust`, about 1.5x faster, 3x with `hd_gif_dither`; needs a build with the Rust library |
+| `GIF_ENCODER`             | no       | Who shrinks and encodes the alarm GIFs: `go` (default) or `rust`, about 1.5x faster, 3x with `hd_gif_dither`; |
 | `BACKGROUND_THRESHOLD`    | no       | Blob area (0 to 1) at or above which the background detector alarms, default `0.003` |
 | `DIFFERENCE_THRESHOLD`    | no       | Frame difference (0 to 1) at or above which the difference detector alarms, default `0.05` (the old name `ALARM_THRESHOLD` still works) |
 | `CAMERA_ID`               | no       | Camera to use; chosen and saved on first run                        |
@@ -91,7 +91,7 @@ Fixed settings (cooldown, alarm GIF length and frames a second, size, the GIF st
 
 Each detector has its own score and its own threshold; `/edit_config` changes both (`background_threshold`, `difference_threshold`).
 
-- **background**: frames are shrunk to 320 pixels wide in grayscale and compared with a per-pixel model of the scene (running mean and variance). Pixels that moved away from their usual value are grouped into blobs, and the score is the area of the largest blob as a fraction of the frame: `0.003` is about 230 of the 76,800 detection pixels. A frame where more than half the picture changes at once is taken as a lighting change and ignored while the model relearns, and a score must hold for 3 of the last 5 frames. Someone who stops moving fades into the background after roughly 900 frames.
+- **background**: frames are shrunk to 320 pixels wide in grayscale and compared with a per-pixel model of the scene (running mean and variance). Pixels that moved away from their usual value are grouped into blobs, and the score is the area of the largest blob as a fraction of the frame: `0.003` is about 230 of the 76,800 detection pixels. A frame where more than half the picture changes at once is taken as a lighting change and ignored while the model relearns, and a score must hold for 3 of the last 5 frames. Anything that changes and then holds still for 60 frames (2–4 s at a webcam's 15–30 fps) becomes part of the background: someone who stops moving, a door left open, or the empty spot left where something stood while the model was learning. So after a big movement the score drops within seconds instead of staying high for a minute and sending an alarm every cooldown.
 - **difference**: the average absolute RGB change between consecutive frames over the last `detection_frames` frames (`/edit_config`), normalized from 0 (identical) to 1 (black to white).
 
 To tune one, turn on `LIVE_STREAM_GRAPH`, watch the graph with the room still and with someone moving, and set the threshold between the two.
@@ -135,13 +135,12 @@ The project uses [pnpm](https://pnpm.io/) (the version is the `packageManager` f
 ## Development
 
 ```bash
-go test ./...
-
-# with the Rust detector
-(cd rust-lib && cargo build --release) && go test -tags rust ./...
+# the Go packages link the Rust library, so build it first
+(cd rust-lib && cargo build --release) && go test ./...
+(cd rust-lib && cargo test --release)
 
 # benchmark the Go and Rust GIF encoders
-go test -tags rust ./lib/gif -run xxx -bench .
+go test ./lib/gif -run xxx -bench .
 ```
 
 Layout: `main.go` wires everything; `telegram_commands.go` defines the bot commands; `lib/` holds the packages (`detection`, `streaming`, `monitor`, `telegram`, `my_video`, `gif`, `dailyreport`, `livegraph`, `sysinfo`, `update`, `env`, `config`).

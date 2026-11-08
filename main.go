@@ -73,17 +73,13 @@ func main() {
 	// were several detectors
 	thresholds := map[string]float64{
 		detection.NameBackground: envThreshold("BACKGROUND_THRESHOLD", config.BackgroundThreshold),
-		// same algorithm as background, so it starts from the same threshold
-		detection.NameBackgroundRust: envThreshold("BACKGROUND_RUST_THRESHOLD", envThreshold("BACKGROUND_THRESHOLD", config.BackgroundThreshold)),
-		detection.NameDifference:     envThreshold("DIFFERENCE_THRESHOLD", envThreshold("ALARM_THRESHOLD", config.DifferenceThreshold)),
+		detection.NameDifference: envThreshold("DIFFERENCE_THRESHOLD", envThreshold("ALARM_THRESHOLD", config.DifferenceThreshold)),
 	}
 	detectorName := cmp.Or(os.Getenv("DETECTOR"), config.DefaultDetector)
 
 	switch enc := strings.ToLower(cmp.Or(os.Getenv("GIF_ENCODER"), "go")); enc {
 	case "go", "rust":
-		if err := gif.UseRust(enc == "rust"); err != nil {
-			panic(fmt.Errorf("GIF_ENCODER: %w", err))
-		}
+		gif.UseRust(enc == "rust")
 	default:
 		panic(fmt.Errorf("GIF_ENCODER: unknown encoder %q, use go or rust", enc))
 	}
@@ -99,9 +95,6 @@ func main() {
 	all := []detection.Detector{
 		detection.NewBackground(),
 		&detection.FrameDifference{Frames: mon.DetectionFrames},
-	}
-	if detection.RustAvailable {
-		all = append(all, detection.NewBackgroundRust())
 	}
 	for _, d := range all {
 		detectors[d.Name()] = d

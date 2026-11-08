@@ -1,4 +1,4 @@
-//! C interface used by the Go program (see `lib/detection/background_rust.go`).
+//! C interface used by the Go program (see `lib/detection/background.go`).
 
 use crate::{Background, Frame};
 use std::slice;

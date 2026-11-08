@@ -1,5 +1,3 @@
-//go:build rust
-
 package gif
 
 import (
@@ -116,9 +114,7 @@ func BenchmarkEncodeDitherRust(b *testing.B) { benchEncode(b, encodeRust, true) 
 func TestUseRustSwitchesTheImplementation(t *testing.T) {
 	defer UseRust(false)
 	in := Shrink(frames(2, true), 320)
-	if err := UseRust(true); err != nil {
-		t.Fatal(err)
-	}
+	UseRust(true)
 	if _, err := Encode(in, 10, true); err != nil {
 		t.Fatal(err)
 	}
