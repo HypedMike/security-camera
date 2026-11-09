@@ -1,6 +1,5 @@
 #!/usr/bin/env bash
-# Builds the security camera on macOS. cgo is required here too, for the
-# background detector and the Rust GIF encoder, which are written in Rust.
+# Builds the security camera on macOS: a single Rust binary, ./securitycamera.
 set -euo pipefail
 cd "$(dirname "$0")"
 
@@ -8,13 +7,8 @@ if [ "$(uname -s)" != "Darwin" ]; then
 	echo "build_macos must run on macOS" >&2
 	exit 1
 fi
-if ! command -v go >/dev/null; then
-	echo "go not found: install Go 1.24 or newer from https://go.dev/dl" >&2
-	exit 1
-fi
 
-# the Rust code needs Rust (https://rustup.rs) and the Xcode command line
-# tools, for the C linker
+# Rust (https://rustup.rs) and the Xcode command line tools, for the C linker
 if ! command -v cargo >/dev/null; then
 	echo "cargo not found: install Rust from https://rustup.rs" >&2
 	exit 1
@@ -23,7 +17,9 @@ if ! xcode-select -p >/dev/null 2>&1; then
 	echo "the Xcode command line tools are missing, run: xcode-select --install" >&2
 	exit 1
 fi
-(cd rust-lib && cargo build --release)
 
-CGO_ENABLED=1 go build -o securitycamera .
+(cd lib && cargo build --release -p securitycamera)
+
+cp lib/target/release/securitycamera securitycamera.new
+mv -f securitycamera.new securitycamera
 echo "built ./securitycamera"

@@ -1,0 +1,7 @@
+[workspace]
+members = ["alarmlog", "detection", "gif", "my_video", "recorder", "securitycamera", "streaming"]
+resolver = "3"
+
+[profile.release]
+lto = true
+codegen-units = 1

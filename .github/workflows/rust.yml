@@ -1,0 +1,34 @@
+# Runs every test of the Rust workspace. It builds and publishes nothing. The tests need
+# neither a webcam nor internet: they use a fake camera, a fake Telegram and a
+# fake weather service on local ports.
+name: Rust
+
+on:
+  pull_request:
+    paths:
+      - lib/**
+      - build_linux
+      - .github/workflows/rust.yml
+  push:
+    branches: [main]
+    paths:
+      - lib/**
+      - build_linux
+      - .github/workflows/rust.yml
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: lib
+    steps:
+      - uses: actions/checkout@v4
+      - run: sudo apt-get update && sudo apt-get install -y build-essential linux-libc-dev
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: lib
+      - run: cargo test --release --workspace
