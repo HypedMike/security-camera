@@ -110,7 +110,8 @@ impl Settings {
 /// their value. Nothing is changed unless all of it is valid.
 pub fn apply(payload: &str, mon: &Monitor, stream: &Stream, live: &Live, detectors: &[&str]) -> Result<(), String> {
     let not_valid = |why: &dyn std::fmt::Display| format!("not valid settings JSON: {why}");
-    let Value::Object(given) = serde_json::from_str::<Value>(payload).map_err(|e| not_valid(&e))? else {
+    let payload = clean(payload);
+    let Value::Object(given) = serde_json::from_str::<Value>(&payload).map_err(|e| not_valid(&e))? else {
         return Err(not_valid(&"the settings must be a JSON object"));
     };
     // what is left out keeps its value: start from the current settings
@@ -143,6 +144,20 @@ pub fn apply(payload: &str, mon: &Monitor, stream: &Stream, live: &Live, detecto
         snap_jpeg_quality: c.snap_jpeg_quality as u8,
     });
     Ok(())
+}
+
+/// Undoes what chat apps and copy-paste do to JSON: non-breaking and other
+/// Unicode spaces become plain spaces, and typographic quotes become `"`.
+fn clean(payload: &str) -> String {
+    payload
+        .chars()
+        .map(|c| match c {
+            '\u{201c}' | '\u{201d}' | '\u{201e}' | '\u{201f}' => '"',
+            c if c != '\n' && c != '\r' && c != '\t' && c.is_whitespace() => ' ',
+            '\u{200b}' | '\u{feff}' => ' ',
+            c => c,
+        })
+        .collect()
 }
 
 fn seconds(s: f64) -> Duration {
@@ -282,6 +297,14 @@ mod tests {
             assert!(err.contains(want), "{payload}: error {err:?}, want one with {want:?}");
             assert_eq!(json(&s), before, "{payload}: settings changed despite the error");
         }
+    }
+
+    #[test]
+    fn pasted_spaces_and_quotes_are_cleaned() {
+        let s = settings();
+        apply_to(&s, "{\n\u{a0}\u{a0}\u{201c}snap_jpeg_quality\u{201d}:\u{2009}50,\n\u{3000}\"paused\": true\n}").unwrap();
+        assert_eq!(s.2.get().snap_jpeg_quality, 50);
+        assert!(s.0.paused());
     }
 
     #[test]
