@@ -1,13 +1,15 @@
 package streaming
 
 import (
+	"bytes"
 	"image"
 	"image/color"
+	"image/draw"
 	"testing"
 )
 
 func TestHistoryOrder(t *testing.T) {
-	s := &Stream{ring: make([]*image.RGBA, 3)}
+	s := New(nil, Options{History: 3})
 	for i := 1; i <= 5; i++ {
 		img := image.NewRGBA(image.Rect(0, 0, 1, 1))
 		img.Set(0, 0, color.RGBA{R: uint8(i), A: 255})
@@ -26,7 +28,7 @@ func TestHistoryOrder(t *testing.T) {
 }
 
 func TestSetHistoryKeepsNewest(t *testing.T) {
-	s := &Stream{ring: make([]*image.RGBA, 4)}
+	s := New(nil, Options{History: 4})
 	add := func(i int) {
 		img := image.NewRGBA(image.Rect(0, 0, 1, 1))
 		img.Set(0, 0, color.RGBA{R: uint8(i), A: 255})
@@ -56,4 +58,28 @@ func TestSetHistoryKeepsNewest(t *testing.T) {
 	check(6, 7)
 	add(8)
 	check(6, 7, 8)
+}
+
+func TestRememberConvertsLikeDraw(t *testing.T) {
+	ycc := image.NewYCbCr(image.Rect(0, 0, 4, 4), image.YCbCrSubsampleRatio420)
+	for i := range ycc.Y {
+		ycc.Y[i] = uint8(i * 15)
+	}
+	for i := range ycc.Cb {
+		ycc.Cb[i], ycc.Cr[i] = uint8(100+i*20), uint8(200-i*20)
+	}
+	gray := image.NewGray(image.Rect(0, 0, 3, 2))
+	for i := range gray.Pix {
+		gray.Pix[i] = uint8(i * 40)
+	}
+	for _, src := range []image.Image{ycc, gray} {
+		s := New(nil, Options{History: 1})
+		s.remember(src)
+		want := image.NewRGBA(src.Bounds())
+		draw.Draw(want, want.Bounds(), src, src.Bounds().Min, draw.Src)
+		got := s.history()[0].(*image.RGBA)
+		if !bytes.Equal(got.Pix, want.Pix) {
+			t.Errorf("%T: got %v want %v", src, got.Pix, want.Pix)
+		}
+	}
 }

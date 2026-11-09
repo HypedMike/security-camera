@@ -38,7 +38,7 @@ It watches the camera, and when it sees motion above a threshold it sends a shor
 - Linux with a V4L2 camera (`/dev/video*`)
 - Go 1.24 or newer
 - A C toolchain, because the camera driver needs cgo: `sudo apt install build-essential linux-libc-dev`
-- Rust (https://rustup.rs), for the background detector, the alarm log and the Rust GIF encoder
+- Rust (https://rustup.rs), for the background detector, the alarm log, the GIF encoder and store, and the stream history
 - A Telegram bot token and your chat id (see below)
 
 ## Setup

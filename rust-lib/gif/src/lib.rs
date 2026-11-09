@@ -299,6 +299,28 @@ impl Image<'_> {
         }
     }
 
+    /// Copies the image into `out`, tightly packed RGBA (`width * height * 4`
+    /// bytes), like Go's `draw.Draw(out, b, img, b.Min, draw.Src)`: RGBA
+    /// pixels are copied as they are, YCbCr ones get alpha 0xff.
+    pub fn write_rgba(&self, out: &mut [u8]) {
+        let (width, height) = self.size();
+        match *self {
+            Image::Rgba { data, stride, .. } => {
+                for y in 0..height {
+                    out[y * width * 4..][..width * 4].copy_from_slice(&data[y * stride..][..width * 4]);
+                }
+            }
+            Image::YCbCr { .. } => {
+                for y in 0..height {
+                    for x in 0..width {
+                        let [r, g, b] = self.rgb16(x, y);
+                        out[(y * width + x) * 4..][..4].copy_from_slice(&[(r >> 8) as u8, (g >> 8) as u8, (b >> 8) as u8, 0xff]);
+                    }
+                }
+            }
+        }
+    }
+
     /// 16-bit R, G, B of the pixel, like Go's `Color.RGBA()`.
     #[inline]
     fn rgb16(&self, x: usize, y: usize) -> [u32; 3] {
