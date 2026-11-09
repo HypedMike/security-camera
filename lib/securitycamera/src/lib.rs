@@ -7,7 +7,6 @@ pub mod app;
 pub mod clips;
 pub mod commands;
 pub mod config;
-pub mod dailyreport;
 pub mod detector;
 pub mod edit_config;
 pub mod env;

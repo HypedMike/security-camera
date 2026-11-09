@@ -15,7 +15,6 @@ use crate::alarms::{self, AlarmBook, Alarms};
 use crate::clips::ClipRecorder;
 use crate::commands::{Commands, Paths, Shutdown, State};
 use crate::config::{self, Live};
-use crate::dailyreport;
 use crate::detector::{BackgroundDetector, Detector, FrameDifference, NAME_BACKGROUND, NAME_DIFFERENCE};
 use crate::edit_config::{self, Settings};
 use crate::env;

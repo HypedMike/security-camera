@@ -206,7 +206,8 @@ pub fn run(stop: &AtomicBool, hour: u32, send: impl Fn(DateTime<Local>)) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::httpd::{self, Request, Response};
+    use std::io::{BufRead, BufReader, Write};
+    use std::net::TcpListener;
     use std::sync::{Arc, Mutex};
 
     fn local(y: i32, mo: u32, d: u32, h: u32, mi: u32) -> DateTime<Local> {
@@ -265,21 +266,38 @@ mod tests {
         }
     }
 
-    type Coordinates = Arc<Mutex<Vec<(String, String)>>>;
+    /// The query strings of the requests a fake server got.
+    type Seen = Arc<Mutex<Vec<String>>>;
 
-    fn weather_server(status: u16, body: &'static str) -> (String, Coordinates) {
-        let seen = Arc::new(Mutex::new(Vec::new()));
+    /// Serves `body` with `status` to every request, on a local port.
+    fn server(status: u16, body: &'static str) -> (String, Seen) {
+        let seen: Seen = Default::default();
         let log = seen.clone();
-        let addr = httpd::spawn(
-            "127.0.0.1:0",
-            0,
-            Arc::new(move |r: &Request| {
-                log.lock().unwrap().push((r.param("latitude").unwrap_or("").into(), r.param("longitude").unwrap_or("").into()));
-                Response::new(status, "application/json", body)
-            }),
-        )
-        .unwrap();
-        (format!("http://{addr}"), seen)
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let url = format!("http://{}", listener.local_addr().unwrap());
+        thread::spawn(move || {
+            for conn in listener.incoming() {
+                let Ok(mut conn) = conn else { continue };
+                let mut line = String::new();
+                let mut reader = BufReader::new(conn.try_clone().unwrap());
+                reader.read_line(&mut line).unwrap();
+                // the rest of the headers
+                loop {
+                    let mut h = String::new();
+                    if reader.read_line(&mut h).unwrap_or(0) <= 2 {
+                        break;
+                    }
+                }
+                let target = line.split_whitespace().nth(1).unwrap_or("");
+                log.lock().unwrap().push(target.split_once('?').map_or("", |(_, q)| q).to_owned());
+                let _ = write!(conn, "HTTP/1.1 {status} X\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}", body.len());
+            }
+        });
+        (url, seen)
+    }
+
+    fn weather_server(status: u16, body: &'static str) -> (String, Seen) {
+        server(status, body)
     }
 
     const TIMEOUT: Duration = Duration::from_secs(5);
@@ -289,7 +307,8 @@ mod tests {
         let (url, seen) = weather_server(200, r#"{"daily":{"weather_code":[1],"temperature_2m_max":[21.4],"temperature_2m_min":[9.8]}}"#);
         let got = fetch_weather(&url, 45.5, 9.2, TIMEOUT).unwrap();
         assert_eq!(got, Weather { sunny: true, max_c: 21.4, min_c: 9.8 });
-        assert_eq!(*seen.lock().unwrap(), [("45.5".to_owned(), "9.2".to_owned())]);
+        let seen = seen.lock().unwrap();
+        assert!(seen[0].contains("latitude=45.5") && seen[0].contains("longitude=9.2"), "{seen:?}");
 
         let (url, _) = weather_server(200, r#"{"daily":{"weather_code":[61],"temperature_2m_max":[12],"temperature_2m_min":[8]}}"#);
         assert!(!fetch_weather(&url, 0.0, 0.0, TIMEOUT).unwrap().sunny, "rain");
@@ -308,34 +327,23 @@ mod tests {
 
     #[test]
     fn fetches_the_events() {
-        let seen = Arc::new(Mutex::new(Vec::new()));
-        let log = seen.clone();
-        let addr = httpd::spawn(
-            "127.0.0.1:0",
-            0,
-            Arc::new(move |r: &Request| {
-                log.lock().unwrap().push(r.param("date").unwrap_or("").to_owned());
-                Response::new(
-                    200,
-                    "application/json",
-                    r#"{"date":"2026-11-09","events":[{"id":1,"title":"Messa","description":null,"eventTime":"18:30","location":"Chiesa","kind":"messa","dayTitle":null},{"id":2,"title":"Incontro","description":"x","eventTime":null,"location":null,"kind":null,"dayTitle":null}]}"#,
-                )
-            }),
-        )
-        .unwrap();
+        let (url, seen) = server(
+            200,
+            r#"{"date":"2026-11-09","events":[{"id":1,"title":"Messa","description":null,"eventTime":"18:30","location":"Chiesa","kind":"messa","dayTitle":null},{"id":2,"title":"Incontro","description":"x","eventTime":null,"location":null,"kind":null,"dayTitle":null}]}"#,
+        );
         let day = NaiveDate::from_ymd_opt(2026, 11, 9).unwrap();
-        let got = fetch_events(&format!("http://{addr}"), day, TIMEOUT).unwrap();
+        let got = fetch_events(&url, day, TIMEOUT).unwrap();
         let ev = |title: &str, time: &str, location: &str| Event { title: title.into(), time: time.into(), location: location.into() };
         assert_eq!(got, [ev("Messa", "18:30", "Chiesa"), ev("Incontro", "", "")]);
-        assert_eq!(*seen.lock().unwrap(), ["2026-11-09"]);
+        assert_eq!(*seen.lock().unwrap(), ["date=2026-11-09"]);
     }
 
     #[test]
     fn bad_events_are_an_error() {
         let day = NaiveDate::from_ymd_opt(2026, 11, 9).unwrap();
         for (status, body) in [(200, "{}"), (200, "not json"), (500, "no")] {
-            let addr = httpd::spawn("127.0.0.1:0", 0, Arc::new(move |_: &Request| Response::new(status, "application/json", body))).unwrap();
-            assert!(fetch_events(&format!("http://{addr}"), day, TIMEOUT).is_err(), "{status} {body}");
+            let (url, _) = server(status, body);
+            assert!(fetch_events(&url, day, TIMEOUT).is_err(), "{status} {body}");
         }
         assert!(fetch_events("http://127.0.0.1:1", day, TIMEOUT).is_err());
     }

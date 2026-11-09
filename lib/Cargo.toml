@@ -1,5 +1,5 @@
 [workspace]
-members = ["alarmlog", "detection", "gif", "my_video", "recorder", "securitycamera", "streaming"]
+members = ["alarmlog", "dailyreport", "detection", "gif", "my_video", "recorder", "securitycamera", "streaming"]
 resolver = "3"
 
 [profile.release]
