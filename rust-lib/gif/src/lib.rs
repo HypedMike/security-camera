@@ -1,4 +1,5 @@
-//! Shrinking frames and encoding animated GIFs (port of `lib/gif/gif.go`).
+//! Shrinking frames, encoding animated GIFs and storing them on disk (port
+//! of `lib/gif`, see `store` for the store).
 //!
 //! Frames are quantized to Go's `palette.Plan9` palette, with the same
 //! nearest-colour rules and the same Floyd-Steinberg error diffusion as Go's
@@ -8,6 +9,7 @@ use std::sync::OnceLock;
 
 pub mod ffi;
 mod lzw;
+pub mod store;
 
 /// Go's `palette.Plan9`, as R, G, B.
 #[rustfmt::skip]
