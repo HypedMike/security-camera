@@ -24,8 +24,6 @@ import (
 	"time"
 	"unsafe"
 
-	"github.com/pion/mediadevices"
-
 	_ "security_camera/lib/native"
 )
 
@@ -41,10 +39,16 @@ type Options struct {
 	History int
 }
 
-// Stream reads frames from a video track and fans them out to handlers.
+// Source is where the frames come from (e.g. a my_video.Video). The image
+// that Read returns is valid until release is called.
+type Source interface {
+	Read() (img image.Image, release func(), err error)
+}
+
+// Stream reads frames from a source and fans them out to handlers.
 type Stream struct {
-	track *mediadevices.VideoTrack
-	opts  Options
+	source Source
+	opts   Options
 
 	mu       sync.RWMutex
 	handlers []Handler
@@ -66,11 +70,11 @@ func newRing(n int) *rustRing {
 	return r
 }
 
-func New(track *mediadevices.VideoTrack, opts Options) *Stream {
+func New(source Source, opts Options) *Stream {
 	if opts.History < 0 {
 		opts.History = 0
 	}
-	return &Stream{track: track, opts: opts, ring: newRing(opts.History)}
+	return &Stream{source: source, opts: opts, ring: newRing(opts.History)}
 }
 
 // AddHandler registers a handler. It is safe to call while the stream is running.
@@ -80,16 +84,14 @@ func (s *Stream) AddHandler(h Handler) {
 	s.handlers = append(s.handlers, h)
 }
 
-// Run reads frames until ctx is cancelled or the track fails, calling every
+// Run reads frames until ctx is cancelled or the source fails, calling every
 // handler in registration order for each frame. Handlers run synchronously,
 // so a slow handler delays the next frame; hand work off to a goroutine if needed.
 // Handlers must not modify the images or retain them after returning, and must
 // not call SetHistory (it waits for the handlers to return).
 func (s *Stream) Run(ctx context.Context) error {
-	reader := s.track.NewReader(false)
-
 	for ctx.Err() == nil {
-		img, release, err := reader.Read()
+		img, release, err := s.source.Read()
 		if err != nil {
 			return err
 		}

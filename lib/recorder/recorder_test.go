@@ -25,8 +25,8 @@ func TestRecordsOnTheGridThenFinishes(t *testing.T) {
 	case <-time.After(time.Second):
 		t.Fatal("the recording never finished")
 	}
-	if len(r.recs) != 0 {
-		t.Errorf("%d recordings still active", len(r.recs))
+	if r.active() != 0 {
+		t.Errorf("%d recordings still active", r.active())
 	}
 }
 

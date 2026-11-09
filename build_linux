@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
-# Builds the security camera on Linux. cgo is required: without it the V4L2
-# camera driver is left out of the binary and no camera is ever found.
+# Builds the security camera on Linux. cgo is required: the camera and the
+# rest of the Rust library are linked into the binary through it.
 set -euo pipefail
 cd "$(dirname "$0")"
 
 if [ "$(uname -s)" != "Linux" ]; then
-	echo "build_linux must run on Linux (cgo can't cross-compile the camera driver)" >&2
+	echo "build_linux must run on Linux (cgo can't cross-compile the Rust library)" >&2
 	exit 1
 fi
 if ! command -v go >/dev/null; then
@@ -27,7 +27,7 @@ fi
 CGO_ENABLED=1 go build -o securitycamera .
 
 if ! go version -m securitycamera | grep -q 'CGO_ENABLED=1'; then
-	echo "built without cgo, the camera driver is missing" >&2
+	echo "built without cgo, the Rust library is missing" >&2
 	exit 1
 fi
 echo "built ./securitycamera"
