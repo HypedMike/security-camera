@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"regexp"
 	"testing"
 	"time"
 )
@@ -76,7 +77,7 @@ func TestOversizeGIFIsDropped(t *testing.T) {
 
 func TestNewCode(t *testing.T) {
 	c, err := NewCode()
-	if err != nil || !validCode(c) {
+	if err != nil || !regexp.MustCompile(`^[0-9a-f]{6}$`).MatchString(c) {
 		t.Fatalf("NewCode = %q, %v", c, err)
 	}
 }

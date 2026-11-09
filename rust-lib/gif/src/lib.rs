@@ -1,4 +1,5 @@
-//! Shrinking frames and encoding animated GIFs (port of `lib/gif/gif.go`).
+//! Shrinking frames, encoding animated GIFs and storing them on disk (port
+//! of `lib/gif`, see `store` for the store).
 //!
 //! Frames are quantized to Go's `palette.Plan9` palette, with the same
 //! nearest-colour rules and the same Floyd-Steinberg error diffusion as Go's
@@ -8,6 +9,7 @@ use std::sync::OnceLock;
 
 pub mod ffi;
 mod lzw;
+pub mod store;
 
 /// Go's `palette.Plan9`, as R, G, B.
 #[rustfmt::skip]
@@ -294,6 +296,28 @@ impl Image<'_> {
     pub fn size(&self) -> (usize, usize) {
         match *self {
             Image::Rgba { width, height, .. } | Image::YCbCr { width, height, .. } => (width, height),
+        }
+    }
+
+    /// Copies the image into `out`, tightly packed RGBA (`width * height * 4`
+    /// bytes), like Go's `draw.Draw(out, b, img, b.Min, draw.Src)`: RGBA
+    /// pixels are copied as they are, YCbCr ones get alpha 0xff.
+    pub fn write_rgba(&self, out: &mut [u8]) {
+        let (width, height) = self.size();
+        match *self {
+            Image::Rgba { data, stride, .. } => {
+                for y in 0..height {
+                    out[y * width * 4..][..width * 4].copy_from_slice(&data[y * stride..][..width * 4]);
+                }
+            }
+            Image::YCbCr { .. } => {
+                for y in 0..height {
+                    for x in 0..width {
+                        let [r, g, b] = self.rgb16(x, y);
+                        out[(y * width + x) * 4..][..4].copy_from_slice(&[(r >> 8) as u8, (g >> 8) as u8, (b >> 8) as u8, 0xff]);
+                    }
+                }
+            }
         }
     }
 

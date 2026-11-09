@@ -1,7 +1,8 @@
 //! Re-exports the C interfaces of the crates in this workspace, see
 //! `lib/alarmlog/alarmlog.go`, `lib/detection/background.go` and
-//! `lib/gif/gif_rust.go`.
+//! `lib/gif/gif_rust.go`, `lib/streaming/streaming.go`.
 
 pub use alarmlog::ffi::*;
 pub use detection::ffi::*;
 pub use gif::ffi::*;
+pub use streaming::ffi::*;
