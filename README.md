@@ -9,16 +9,16 @@ It watches the camera, and when it sees motion above a threshold it sends a shor
 ## Features
 
 - **Motion detection**, with interchangeable detectors (`DETECTOR` setting or `detector` in `/edit_config`):
-  - `background` (default): learns what the empty scene looks like and alarms when a moving blob covers at least `BACKGROUND_THRESHOLD` of the frame. Picks up small or distant movement and ignores lights switching on. The model is in [`rust-lib/detection/`](rust-lib/detection/).
+  - `background` (default): learns what the empty scene looks like and alarms when a moving blob covers at least `BACKGROUND_THRESHOLD` of the frame. Picks up small or distant movement and ignores lights switching on. The model is in [`lib/detection/`](lib/detection/).
   - `difference`: compares the last frames pixel by pixel and alarms when the average difference reaches `DIFFERENCE_THRESHOLD`.
-- **Telegram alerts**: the moment motion is detected a message goes out with the time, the detector, its score and a code. In the background the program records the next 5 s of the camera at 2 frames a second (640x480, dithered) and saves them as a GIF in `gifs/`, at most 1 GB: past that the oldest are deleted (the encoder and the store are in [`rust-lib/gif/`](rust-lib/gif/)). React to the alarm message with 👍 and the GIF is sent as a reply (or send `/hd <code>`). Alarms are only spaced by a 5 s cooldown, there is no cap per minute. In a group the bot must be an administrator to see reactions.
+- **Telegram alerts**: the moment motion is detected a message goes out with the time, the detector, its score and a code. In the background the program records the next 5 s of the camera at 2 frames a second (640x480, dithered) and saves them as a GIF in `gifs/`, at most 1 GB: past that the oldest are deleted (the encoder and the store are in [`lib/gif/`](lib/gif/)). React to the alarm message with 👍 and the GIF is sent as a reply (or send `/hd <code>`). Alarms are only spaced by a 5 s cooldown, there is no cap per minute. In a group the bot must be an administrator to see reactions.
 - **Telegram commands**, accepted only from the configured chat:
 
   | Command   | What it does                                          |
   |-----------|-------------------------------------------------------|
   | `/snap`   | Sends the next camera frame as a photo                |
   | `/info`   | Reports machine state (system) and camera/alarm state |
-  | `/alarms` | Lists the latest 10 alarms: whether their GIF is recording, ready or sent (`/queue` still works). The alarm log is in [`rust-lib/alarmlog/`](rust-lib/alarmlog/) |
+  | `/alarms` | Lists the latest 10 alarms: whether their GIF is recording, ready or sent (`/queue` still works). The alarm log is in [`lib/alarmlog/`](lib/alarmlog/) |
   | `/hd <code>` | Sends the GIF of the alarm with that code, the same as a 👍 on the alarm message |
   | `/app`    | Sends a button that opens the mini app (live view and motion graph) |
   | `/update` | Pulls the latest code, rebuilds and restarts          |
@@ -27,7 +27,7 @@ It watches the camera, and when it sees motion above a threshold it sends a shor
   | `/edit_config [json]` | Without arguments, sends all the settings as JSON (detector, thresholds, frame counts, cooldown, alarm GIF length, speed and quality, snapshot quality). Followed by that JSON, changes them and saves them in `settings.json`, so they survive a restart (`paused` is not saved); keys left out keep their value and nothing changes if any value is invalid |
   | `/reset_config` | Goes back to the default settings (constants and `.env`) and deletes `settings.json` |
 
-- **System alarms**: every minute the program checks the machine and warns on Telegram when the disk is 90% full or more, when the CPU stays at 90% or more for 5 minutes, when a temperature sensor reaches 80°C, and when the connection to Telegram is lost. Each problem is reported once when it starts and once when it is over. A lost connection can only be reported when it comes back ("Connection back after 12m0s (lost at 03:14)"), and a warning that cannot be sent is kept and sent as soon as the connection is back. The limits are in [`rust-lib/securitycamera/src/config.rs`](rust-lib/securitycamera/src/config.rs); values the machine cannot read (e.g. temperature on macOS) are skipped.
+- **System alarms**: every minute the program checks the machine and warns on Telegram when the disk is 90% full or more, when the CPU stays at 90% or more for 5 minutes, when a temperature sensor reaches 80°C, and when the connection to Telegram is lost. Each problem is reported once when it starts and once when it is over. A lost connection can only be reported when it comes back ("Connection back after 12m0s (lost at 03:14)"), and a warning that cannot be sent is kept and sent as soon as the connection is back. The limits are in [`lib/securitycamera/src/config.rs`](lib/securitycamera/src/config.rs); values the machine cannot read (e.g. temperature on macOS) are skipped.
 - **Daily "i'm alive" message**: every day at 9:00 (machine local time) the bot says it is running, how many alarms there were during the night, from 20:00 the evening before (or that there was no movement), and a suggestion based on today's forecast (for `WEATHER_LATITUDE`/`WEATHER_LONGITUDE`, Lucca if unset) and temperatures from [Open-Meteo](https://open-meteo.com/) (no key needed). On a sunny Sunday it adds a hike suggestion.
 - **Live graph** (optional): a web page at `http://localhost:8080` plotting the motion score in real time, handy for tuning the threshold.
 - **Telegram mini app** (optional): a page inside Telegram, written in React ([`miniapp-web/`](miniapp-web/)), with the live camera view and the live motion graph. See [Mini app](#mini-app).
@@ -35,7 +35,7 @@ It watches the camera, and when it sees motion above a threshold it sends a shor
 
 ## Requirements
 
-- Linux (a V4L2 camera, `/dev/video*`) or macOS (AVFoundation; grant the camera permission when asked). The camera is read by [`rust-lib/my_video/`](rust-lib/my_video/) with [nokhwa](https://crates.io/crates/nokhwa)
+- Linux (a V4L2 camera, `/dev/video*`) or macOS (AVFoundation; grant the camera permission when asked). The camera is read by [`lib/my_video/`](lib/my_video/) with [nokhwa](https://crates.io/crates/nokhwa)
 - Rust (https://rustup.rs)
 - A C toolchain, for the camera library: `sudo apt install build-essential linux-libc-dev`
 - A Telegram bot token and your chat id (see below)
@@ -84,7 +84,7 @@ Settings live in `.env` (see [`.env.example`](.env.example)).
 
 Flag: `-fetch-camera` lists the cameras again and lets you choose a different one.
 
-Fixed settings (cooldown, alarm GIF length and frames a second, size, the GIF storage limit, resolution 640x480, history length) are in [`rust-lib/securitycamera/src/config.rs`](rust-lib/securitycamera/src/config.rs).
+Fixed settings (cooldown, alarm GIF length and frames a second, size, the GIF storage limit, resolution 640x480, history length) are in [`lib/securitycamera/src/config.rs`](lib/securitycamera/src/config.rs).
 
 ## Detectors and thresholds
 
@@ -118,7 +118,7 @@ Who gets in: every request carries the signed data Telegram gives the app when i
 
 The signed data expires after 24 hours. Everybody else, or an expired link, gets "unauthorized". Anyone who knows the public address can still open the page and send requests, so this check is all that protects the video: keep the bot token secret. At most 3 videos are open at once, each stops after 15 minutes (the app pauses it after 10 minutes and while it is hidden), and frames are only encoded while somebody is watching.
 
-The page is built from [`miniapp-web/`](miniapp-web/) (React, TypeScript, Vite) into `rust-lib/securitycamera/dist`, which is committed and embedded in the program, so the machine that runs the camera does not need Node. After changing the page, rebuild it and commit the result:
+The page is built from [`miniapp-web/`](miniapp-web/) (React, TypeScript, Vite) into `lib/securitycamera/dist`, which is committed and embedded in the program, so the machine that runs the camera does not need Node. After changing the page, rebuild it and commit the result:
 
 ```bash
 cd miniapp-web
@@ -127,14 +127,14 @@ pnpm test
 pnpm run build
 ```
 
-The project uses [pnpm](https://pnpm.io/) (the version is the `packageManager` field of `miniapp-web/package.json`, Node 22 or newer). A GitHub Actions workflow ([`.github/workflows/miniapp.yml`](.github/workflows/miniapp.yml)) runs the same steps on every pull request that touches the page: if `rust-lib/securitycamera/dist` is not what the sources build, it commits the rebuilt one to the pull request branch (for a fork, or on `main`, it fails instead).
+The project uses [pnpm](https://pnpm.io/) (the version is the `packageManager` field of `miniapp-web/package.json`, Node 22 or newer). A GitHub Actions workflow ([`.github/workflows/miniapp.yml`](.github/workflows/miniapp.yml)) runs the same steps on every pull request that touches the page: if `lib/securitycamera/dist` is not what the sources build, it commits the rebuilt one to the pull request branch (for a fork, or on `main`, it fails instead).
 
 `pnpm run dev` serves the page with hot reload and sends the API calls to the program on `127.0.0.1:8081`. Outside Telegram the page has no signed data, so it shows "Open this page from Telegram": test it in Telegram, through the tunnel.
 
 ## Development
 
 ```bash
-cd rust-lib
+cd lib
 cargo test --release      # the whole workspace, no camera or network needed
 cargo clippy --release --all-targets
 cargo build --release -p securitycamera
@@ -142,7 +142,7 @@ cargo build --release -p securitycamera
 
 The tests of the program talk to a fake Telegram and a fake weather service, run the mini app and live graph servers on local ports, and use a fake camera, so they need neither a webcam nor internet.
 
-Layout: [`rust-lib/securitycamera/`](rust-lib/securitycamera/) is the program, the other crates of the [`rust-lib/`](rust-lib/) workspace are libraries it uses (`alarmlog`, `detection`, `gif`, `my_video`, `recorder`, `streaming`). In `securitycamera/src`:
+Layout: [`lib/securitycamera/`](lib/securitycamera/) is the program, the other crates of the [`lib/`](lib/) workspace are libraries it uses (`alarmlog`, `detection`, `gif`, `my_video`, `recorder`, `streaming`). In `securitycamera/src`:
 
 | Module | What it does |
 |--------|--------------|

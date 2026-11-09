@@ -6,13 +6,13 @@ name: Rust
 on:
   pull_request:
     paths:
-      - rust-lib/**
+      - lib/**
       - build_linux
       - .github/workflows/rust.yml
   push:
     branches: [main]
     paths:
-      - rust-lib/**
+      - lib/**
       - build_linux
       - .github/workflows/rust.yml
 
@@ -24,11 +24,11 @@ jobs:
     runs-on: ubuntu-latest
     defaults:
       run:
-        working-directory: rust-lib
+        working-directory: lib
     steps:
       - uses: actions/checkout@v4
       - run: sudo apt-get update && sudo apt-get install -y build-essential linux-libc-dev
       - uses: Swatinem/rust-cache@v2
         with:
-          workspaces: rust-lib
+          workspaces: lib
       - run: cargo test --release --workspace

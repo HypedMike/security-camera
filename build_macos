@@ -18,8 +18,8 @@ if ! xcode-select -p >/dev/null 2>&1; then
 	exit 1
 fi
 
-(cd rust-lib && cargo build --release -p securitycamera)
+(cd lib && cargo build --release -p securitycamera)
 
-cp rust-lib/target/release/securitycamera securitycamera.new
+cp lib/target/release/securitycamera securitycamera.new
 mv -f securitycamera.new securitycamera
 echo "built ./securitycamera"
