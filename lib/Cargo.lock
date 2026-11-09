@@ -332,6 +332,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "dailyreport"
+version = "0.1.0"
+dependencies = [
+ "chrono",
+ "serde",
+ "ureq",
+]
+
+[[package]]
 name = "detection"
 version = "0.1.0"
 
@@ -1186,6 +1195,7 @@ dependencies = [
  "alarmlog",
  "chrono",
  "ctrlc",
+ "dailyreport",
  "detection",
  "gif",
  "hex",
