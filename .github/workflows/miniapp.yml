@@ -1,4 +1,4 @@
-# The mini app is built from miniapp-web/ into lib/miniapp/dist, which is
+# The mini app is built from miniapp-web/ into rust-lib/securitycamera/dist, which is
 # committed so the machine running the camera does not need Node. This keeps
 # the two in step: it tests and builds the page, and if dist is not what the
 # sources produce it rebuilds it.
@@ -13,13 +13,13 @@ on:
   pull_request:
     paths:
       - miniapp-web/**
-      - lib/miniapp/dist/**
+      - rust-lib/securitycamera/dist/**
       - .github/workflows/miniapp.yml
   push:
     branches: [main]
     paths:
       - miniapp-web/**
-      - lib/miniapp/dist/**
+      - rust-lib/securitycamera/dist/**
       - .github/workflows/miniapp.yml
 
 permissions:
@@ -61,9 +61,9 @@ jobs:
         working-directory: .
         run: |
           # untracked files too: a build can add a file with a new hash
-          if [ -n "$(git status --porcelain --untracked-files=all lib/miniapp/dist)" ]; then
+          if [ -n "$(git status --porcelain --untracked-files=all rust-lib/securitycamera/dist)" ]; then
             echo "stale=true" >> "$GITHUB_OUTPUT"
-            git status --short lib/miniapp/dist
+            git status --short rust-lib/securitycamera/dist
           else
             echo "stale=false" >> "$GITHUB_OUTPUT"
             echo "dist is up to date"
@@ -75,12 +75,12 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add --all lib/miniapp/dist
+          git add --all rust-lib/securitycamera/dist
           git commit -m "Rebuild the mini app dist"
           git push
 
       - name: Fail, dist is out of date
         if: steps.stale.outputs.stale == 'true' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name != github.repository)
         run: |
-          echo "::error::lib/miniapp/dist is not what miniapp-web builds. Run 'pnpm install && pnpm run build' in miniapp-web and commit lib/miniapp/dist."
+          echo "::error::rust-lib/securitycamera/dist is not what miniapp-web builds. Run 'pnpm install && pnpm run build' in miniapp-web and commit rust-lib/securitycamera/dist."
           exit 1

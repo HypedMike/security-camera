@@ -10,7 +10,6 @@
 //! An alarm is named by the id `begin` gives. Once it is forgotten (only the
 //! latest `KEPT` are remembered) every call about it does nothing.
 
-pub mod ffi;
 
 use std::collections::{HashMap, VecDeque};
 use std::fmt::Write;

@@ -7,7 +7,6 @@
 //! with it (see [`Recorder::frame`]). Times are nanoseconds on any clock, as
 //! long as it is the same one for every call.
 
-pub mod ffi;
 
 /// What to do with a frame for one clip.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

@@ -1,5 +1,4 @@
-//! Background-model motion detection, the `background` detector of the Go
-//! program (see `lib/detection/background.go`).
+//! Background-model motion detection, the `background` detector.
 //!
 //! Each frame is shrunk to a small grayscale image and lightly blurred. Every
 //! pixel keeps a running mean and variance of its brightness; a pixel has
@@ -403,4 +402,3 @@ fn luma(r: u32, g: u32, b: u32) -> u32 {
     (19595 * r + 38470 * g + 7471 * b + (1 << 15)) >> 16
 }
 
-pub mod ffi;

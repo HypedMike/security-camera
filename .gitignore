@@ -2,6 +2,7 @@
 settings.json
 settings.json.tmp
 temp
-securitycamera
+/securitycamera
+/securitycamera.new
 gifs
 target

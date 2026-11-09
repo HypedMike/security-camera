@@ -1,13 +1,12 @@
-//! Shrinking frames, encoding animated GIFs and storing them on disk (port
-//! of `lib/gif`, see `store` for the store).
+//! Shrinking frames, encoding animated GIFs and storing them on disk (see
+//! `store` for the store).
 //!
 //! Frames are quantized to Go's `palette.Plan9` palette, with the same
 //! nearest-colour rules and the same Floyd-Steinberg error diffusion as Go's
-//! `image/draw`, so the pictures match the Go encoder's.
+//! `image/draw`, so the pictures are the ones Go's `image/gif` made when the program was written in Go.
 
 use std::sync::OnceLock;
 
-pub mod ffi;
 mod lzw;
 pub mod store;
 

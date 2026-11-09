@@ -8,7 +8,6 @@
 //! tested with a fake camera.
 
 mod camera;
-pub mod ffi;
 
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc;

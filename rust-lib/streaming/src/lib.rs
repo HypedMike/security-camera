@@ -1,11 +1,9 @@
-//! The frames a stream remembers (port of the ring buffer in
-//! `lib/streaming/streaming.go`): the last `capacity` frames, copied as
+//! The frames a stream remembers: the last `capacity` frames, copied as
 //! tightly packed RGBA, oldest first. A slot's memory is reused when the next
 //! frame has the same size.
 
 use gif::Image;
 
-pub mod ffi;
 
 #[derive(Default)]
 struct Slot {

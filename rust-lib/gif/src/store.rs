@@ -1,4 +1,4 @@
-//! The GIFs saved on disk under a code (port of `lib/gif/store.go`).
+//! The GIFs saved on disk under a code.
 //!
 //! A `Store` keeps its files in one directory, named `<code>.gif`, and keeps
 //! their total size at or below a limit by deleting the oldest ones.
@@ -39,7 +39,7 @@ impl From<io::Error> for Error {
     }
 }
 
-/// Whether `code` looks like what the Go side generates: six lowercase hex
+/// Whether `code` looks like what the program generates: six lowercase hex
 /// digits. It also keeps a user supplied code from naming any other file.
 pub fn valid_code(code: &str) -> bool {
     code.len() == 6 && code.bytes().all(|c| c.is_ascii_digit() || (b'a'..=b'f').contains(&c))
