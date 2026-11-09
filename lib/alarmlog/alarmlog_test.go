@@ -2,7 +2,9 @@ package alarmlog
 
 import (
 	"errors"
+	"fmt"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
@@ -67,8 +69,56 @@ func TestOldAlarmsForgotten(t *testing.T) {
 	if _, act := l.Request(kept + 5); act == Unknown {
 		t.Error("the latest alarm should be remembered")
 	}
-	if len(l.byMessage) != kept {
-		t.Errorf("%d messages remembered, want %d", len(l.byMessage), kept)
+	// the oldest one remembered is the one kept alarms before the latest
+	if _, act := l.Request(5); act != Unknown {
+		t.Errorf("alarm 5 should be forgotten, got %v", act)
+	}
+	if _, act := l.Request(6); act == Unknown {
+		t.Error("alarm 6 should still be remembered")
+	}
+	if len(l.alarms) != kept {
+		t.Errorf("%d alarms remembered, want %d", len(l.alarms), kept)
+	}
+}
+
+func TestEmbeddedAndConcurrent(t *testing.T) {
+	// a Log can be part of a bigger struct, and be used from many goroutines
+	var s struct {
+		pad int
+		Log
+	}
+	var wg sync.WaitGroup
+	for i := 1; i <= 50; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			a := s.Begin(time.Now(), "d", 0.5, "code")
+			a.Posted(i)
+			s.Request(i)
+			a.Finish(nil)
+			_ = s.Report(3)
+		}()
+	}
+	wg.Wait()
+	if got := len(s.alarms); got != 50 {
+		t.Errorf("%d alarms, want 50", got)
+	}
+}
+
+func TestReportFormat(t *testing.T) {
+	var l Log
+	at := time.Date(2026, 11, 8, 23, 4, 5, 0, time.FixedZone("x", 3600))
+	l.Begin(at, "background", 0.03125, "").Finish(errors.New("disk full"))
+	want := "Latest 1 alarms, newest first:\n23:04:05 background 0.0312: no GIF (disk full)"
+	if got := l.Report(5); got != want {
+		t.Errorf("got %q, want %q", got, want)
+	}
+	// same as Go's own time and number formatting
+	if got, w := fmt.Sprintf("%s %.4f", at.Format("15:04:05"), 0.03125), "23:04:05 0.0312"; got != w {
+		t.Fatalf("Go prints %q, want %q", got, w)
+	}
+	if got := l.Report(0); got != "No alarms yet." {
+		t.Errorf("Report(0): %q", got)
 	}
 }
 

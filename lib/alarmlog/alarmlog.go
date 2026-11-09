@@ -5,13 +5,35 @@
 // the GIF is saved, or Failed if it could not be. Whoever reacts to the alarm
 // message with a thumbs up asks for the GIF: Request says whether to send it
 // now or, if it is still being recorded, once it is ready.
+//
+// The log is implemented in Rust, see rust-lib/alarmlog/src/lib.rs.
 package alarmlog
 
+/*
+#include <stdint.h>
+#include <stdbool.h>
+#include <stddef.h>
+
+void *alarmlog_new(void);
+void alarmlog_free(void *log);
+uint64_t alarmlog_begin(const void *log, int64_t at, int32_t utc_offset, const uint8_t *detector, size_t detector_len, double score, const uint8_t *code, size_t code_len);
+int64_t alarmlog_message_id(const void *log, uint64_t id);
+void alarmlog_posted(const void *log, uint64_t id, int64_t message_id);
+bool alarmlog_finish(const void *log, uint64_t id, bool failed, const uint8_t *reason, size_t reason_len);
+void alarmlog_unsent(const void *log, uint64_t id);
+int32_t alarmlog_request(const void *log, int64_t message_id, uint64_t *id);
+uint8_t *alarmlog_report(const void *log, size_t n, size_t *len);
+void alarmlog_free_text(uint8_t *ptr, size_t len);
+*/
+import "C"
+
 import (
-	"fmt"
-	"strings"
+	"runtime"
 	"sync"
 	"time"
+	"unsafe"
+
+	_ "security_camera/lib/native"
 )
 
 // Status is where the GIF of an alarm is.
@@ -26,44 +48,63 @@ const (
 	Failed
 )
 
-// kept is how many alarms are remembered.
+// kept is how many alarms are remembered. It is KEPT in rust-lib/alarmlog,
+// which forgets an alarm when the one kept alarms after it begins.
 const kept = 100
 
 // Log remembers the latest alarms. The zero value is ready to use.
 type Log struct {
-	mu        sync.Mutex
-	alarms    []*Alarm // oldest first, at most kept
-	byMessage map[int]*Alarm
+	once sync.Once
+	rust *rustLog
+
+	mu     sync.Mutex
+	alarms map[uint64]*Alarm // the ones Rust still remembers
 }
+
+// rustLog owns the log in Rust: the finalizer is on this and not on Log, so
+// a Log can be part of a bigger struct.
+type rustLog struct{ p unsafe.Pointer }
 
 // Alarm is one alarm in a Log.
 type Alarm struct {
-	log      *Log
-	at       time.Time
-	detector string
-	score    float64
-	code     string
+	log  *Log
+	id   uint64
+	at   time.Time
+	code string
+}
 
-	// guarded by log.mu
-	messageID int
-	status    Status
-	reason    string
-	wanted    bool // somebody asked for the GIF before it was ready
-	claimed   bool // the GIF is being sent, or was
+// ptr is the log in Rust, made when it is first needed.
+func (l *Log) ptr() unsafe.Pointer {
+	l.once.Do(func() {
+		l.rust = &rustLog{p: C.alarmlog_new()}
+		runtime.SetFinalizer(l.rust, func(r *rustLog) { C.alarmlog_free(r.p) })
+	})
+	return l.rust.p
+}
+
+// cbytes is the address of the first byte of s, or nil if there is none.
+func cbytes(s string) *C.uint8_t {
+	if s == "" {
+		return nil
+	}
+	return (*C.uint8_t)(unsafe.Pointer(unsafe.StringData(s)))
 }
 
 // Begin records a new alarm detected at at, in the Recording state. code is
 // what the GIF is saved under.
 func (l *Log) Begin(at time.Time, detector string, score float64, code string) *Alarm {
-	a := &Alarm{log: l, at: at, detector: detector, score: score, code: code}
+	_, offset := at.Zone()
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	l.alarms = append(l.alarms, a)
-	if len(l.alarms) > kept {
-		for _, old := range l.alarms[:len(l.alarms)-kept] {
-			delete(l.byMessage, old.messageID)
-		}
-		l.alarms = l.alarms[len(l.alarms)-kept:]
+	id := uint64(C.alarmlog_begin(l.ptr(), C.int64_t(at.Unix()), C.int32_t(offset),
+		cbytes(detector), C.size_t(len(detector)), C.double(score), cbytes(code), C.size_t(len(code))))
+	a := &Alarm{log: l, id: id, at: at, code: code}
+	if l.alarms == nil {
+		l.alarms = map[uint64]*Alarm{}
+	}
+	l.alarms[id] = a
+	if id >= kept {
+		delete(l.alarms, id-kept)
 	}
 	return a
 }
@@ -73,9 +114,7 @@ func (a *Alarm) At() time.Time { return a.at }
 
 // MessageID is the id of the alarm message, or 0 if it is not sent (yet).
 func (a *Alarm) MessageID() int {
-	a.log.mu.Lock()
-	defer a.log.mu.Unlock()
-	return a.messageID
+	return int(C.alarmlog_message_id(a.log.ptr(), C.uint64_t(a.id)))
 }
 
 // Code is what the GIF of the alarm is saved under.
@@ -84,47 +123,24 @@ func (a *Alarm) Code() string { return a.code }
 // Posted says the message of the alarm was sent as message messageID, so a
 // reaction to that message asks for the GIF.
 func (a *Alarm) Posted(messageID int) {
-	l := a.log
-	l.mu.Lock()
-	defer l.mu.Unlock()
-	if messageID == 0 {
-		return
-	}
-	a.messageID = messageID
-	if l.byMessage == nil {
-		l.byMessage = map[int]*Alarm{}
-	}
-	l.byMessage[messageID] = a
+	C.alarmlog_posted(a.log.ptr(), C.uint64_t(a.id), C.int64_t(messageID))
 }
 
 // Finish says the GIF is saved, or, if err is not nil, that it could not be
 // made. It returns true if somebody has already asked for the GIF and it is
 // to be sent now.
 func (a *Alarm) Finish(err error) (send bool) {
-	l := a.log
-	l.mu.Lock()
-	defer l.mu.Unlock()
-	if a.status != Recording {
-		return false
-	}
+	var reason string
 	if err != nil {
-		a.status, a.reason = Failed, err.Error()
-		return false
+		reason = err.Error()
 	}
-	a.status = Ready
-	if a.wanted && !a.claimed {
-		a.claimed = true
-		return true
-	}
-	return false
+	return bool(C.alarmlog_finish(a.log.ptr(), C.uint64_t(a.id), C.bool(err != nil), cbytes(reason), C.size_t(len(reason))))
 }
 
 // Unsent says the GIF could not be sent after Request or Finish told to send
 // it, so the next request tries again.
 func (a *Alarm) Unsent() {
-	a.log.mu.Lock()
-	defer a.log.mu.Unlock()
-	a.claimed = false
+	C.alarmlog_unsent(a.log.ptr(), C.uint64_t(a.id))
 }
 
 // Action is what to do about a request for a GIF.
@@ -146,75 +162,24 @@ const (
 // Request is called when somebody reacts to the message messageID. It returns
 // the alarm that message is of and what to do.
 func (l *Log) Request(messageID int) (*Alarm, Action) {
+	var id C.uint64_t
+	action := Action(C.alarmlog_request(l.ptr(), C.int64_t(messageID), &id))
+	if action == Unknown {
+		return nil, Unknown
+	}
 	l.mu.Lock()
-	defer l.mu.Unlock()
-	a := l.byMessage[messageID]
+	a := l.alarms[uint64(id)]
+	l.mu.Unlock()
 	if a == nil {
 		return nil, Unknown
 	}
-	switch a.status {
-	case Failed:
-		return a, NoGIF
-	case Recording:
-		if a.wanted {
-			return a, Nothing
-		}
-		a.wanted = true
-		return a, Later
-	}
-	if a.claimed {
-		return a, Nothing
-	}
-	a.claimed = true
-	return a, Send
-}
-
-// Info is the state of an alarm.
-type Info struct {
-	At       time.Time
-	Detector string
-	Score    float64
-	Code     string
-	Status   Status
-	// Sent is whether the GIF has been asked for and sent.
-	Sent bool
-	// Reason is why a Failed alarm has no GIF.
-	Reason string
-}
-
-// Recent returns the state of the latest n alarms, newest first.
-func (l *Log) Recent(n int) []Info {
-	l.mu.Lock()
-	defer l.mu.Unlock()
-	var out []Info
-	for i := len(l.alarms) - 1; i >= 0 && len(out) < n; i-- {
-		a := l.alarms[i]
-		out = append(out, Info{At: a.at, Detector: a.detector, Score: a.score, Code: a.code, Status: a.status,
-			Sent: a.claimed && a.status == Ready, Reason: a.reason})
-	}
-	return out
+	return a, action
 }
 
 // Report describes the latest n alarms for a Telegram message.
 func (l *Log) Report(n int) string {
-	alarms := l.Recent(n)
-	if len(alarms) == 0 {
-		return "No alarms yet."
-	}
-	var b strings.Builder
-	fmt.Fprintf(&b, "Latest %d alarms, newest first:", len(alarms))
-	for _, a := range alarms {
-		fmt.Fprintf(&b, "\n%s %s %.4f: ", a.At.Format("15:04:05"), a.Detector, a.Score)
-		switch {
-		case a.Status == Recording:
-			b.WriteString("recording the GIF")
-		case a.Status == Failed:
-			fmt.Fprintf(&b, "no GIF (%s)", a.Reason)
-		case a.Sent:
-			fmt.Fprintf(&b, "GIF sent (%s)", a.Code)
-		default:
-			fmt.Fprintf(&b, "GIF ready, react with 👍 or /hd %s", a.Code)
-		}
-	}
-	return b.String()
+	var size C.size_t
+	p := C.alarmlog_report(l.ptr(), C.size_t(max(n, 0)), &size)
+	defer C.alarmlog_free_text(p, size)
+	return C.GoStringN((*C.char)(unsafe.Pointer(p)), C.int(size))
 }
