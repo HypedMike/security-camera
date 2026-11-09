@@ -1,5 +1,6 @@
 //! A short "I'm alive" message to Telegram every day, with the alarms of the
-//! night and a weather based suggestion.
+//! night, a weather based suggestion and the events of the day from the
+//! parish calendar.
 
 use std::fmt::Write;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -17,10 +18,21 @@ pub struct Weather {
     pub min_c: f64,
 }
 
+/// An event of the day in the calendar.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Event {
+    pub title: String,
+    /// Free text, e.g. "18:30" or "10 · 12 · 18"; empty if unknown.
+    pub time: String,
+    /// Empty if unknown.
+    pub location: String,
+}
+
 /// Builds the message sent at `now`. `alarms` are the times of the alarms
-/// since the last report, `paused` says whether alarms are switched off and
-/// `w` is today's forecast, `None` if it is not known.
-pub fn compose(now: DateTime<Local>, alarms: &[DateTime<Local>], paused: bool, w: Option<Weather>) -> String {
+/// since the last report, `paused` says whether alarms are switched off,
+/// `w` is today's forecast, `None` if it is not known, and `events` are the
+/// events of the day in the calendar.
+pub fn compose(now: DateTime<Local>, alarms: &[DateTime<Local>], paused: bool, w: Option<Weather>, events: &[Event]) -> String {
     let mut b = String::from("i'm alive, tonight ");
     match alarms {
         [] => b.push_str("there have been no alarms or movement"),
@@ -36,7 +48,26 @@ pub fn compose(now: DateTime<Local>, alarms: &[DateTime<Local>], paused: bool, w
     }
     b.push('.');
 
-    let Some(w) = w else { return b };
+    if let Some(w) = w {
+        push_weather(&mut b, now, w);
+    }
+    if !events.is_empty() {
+        b.push_str("\n\nToday in the calendar:");
+        for e in events {
+            b.push_str("\n- ");
+            if !e.time.is_empty() {
+                let _ = write!(b, "{} ", e.time);
+            }
+            b.push_str(&e.title);
+            if !e.location.is_empty() {
+                let _ = write!(b, " ({})", e.location);
+            }
+        }
+    }
+    b
+}
+
+fn push_weather(b: &mut String, now: DateTime<Local>, w: Weather) {
     b.push_str(" Today ");
     let temp = format!("{:.0}°C to {:.0}°C", w.min_c, w.max_c);
     let _ = match (w.sunny, w.max_c) {
@@ -50,7 +81,6 @@ pub fn compose(now: DateTime<Local>, alarms: &[DateTime<Local>], paused: bool, w
     if w.sunny && now.weekday() == Weekday::Sun {
         b.push_str(" sunny sunday would make a great hike!");
     }
-    b
 }
 
 /// Whether a WMO weather code, as Open-Meteo gives it, is a clear sky (0) or
@@ -103,6 +133,41 @@ pub fn fetch_weather(api: &str, lat: f64, lon: f64, timeout: Duration) -> Result
         (Some(&code), Some(&max_c), Some(&min_c)) => Ok(Weather { sunny: sunny(code), max_c, min_c }),
         _ => Err("weather: no forecast for today".into()),
     }
+}
+
+/// The API the events come from: the parish website, which needs no key.
+pub const CALENDAR_API: &str = "https://parrocchiasandonato.vercel.app/api/events";
+
+/// The events in the calendar on `day`. `api` is the URL of the events
+/// endpoint, "" for the parish website.
+pub fn fetch_events(api: &str, day: NaiveDate, timeout: Duration) -> Result<Vec<Event>, String> {
+    let api = if api.is_empty() { CALENDAR_API } else { api };
+    let agent = ureq::AgentBuilder::new().timeout(timeout).build();
+    let resp = match agent.get(api).query("date", &day.format("%Y-%m-%d").to_string()).call() {
+        Ok(r) => r,
+        Err(ureq::Error::Status(code, r)) => {
+            let body: String = r.into_string().unwrap_or_default().chars().take(256).collect();
+            return Err(format!("calendar: status {code}: {body}"));
+        }
+        Err(e) => return Err(format!("calendar: {e}")),
+    };
+    #[derive(Deserialize)]
+    struct Data {
+        events: Vec<Item>,
+    }
+    #[derive(Deserialize)]
+    struct Item {
+        title: String,
+        #[serde(rename = "eventTime")]
+        time: Option<String>,
+        location: Option<String>,
+    }
+    let data: Data = resp.into_json().map_err(|e| format!("calendar: {e}"))?;
+    Ok(data
+        .events
+        .into_iter()
+        .map(|i| Event { title: i.title, time: i.time.unwrap_or_default(), location: i.location.unwrap_or_default() })
+        .collect())
 }
 
 /// The local time `hour`:00 on `day`. A clock that skips that hour (the
@@ -164,10 +229,11 @@ mod tests {
             alarms: Vec<DateTime<Local>>,
             paused: bool,
             weather: Option<Weather>,
+            events: Vec<Event>,
             want: Vec<&'static str>,
             not_want: Vec<&'static str>,
         }
-        let case = |name, now, alarms, paused, weather, want, not_want| Case { name, now, alarms, paused, weather, want, not_want };
+        let case = |name, now, alarms, paused, weather, want, not_want| Case { name, now, alarms, paused, weather, events: vec![], want, not_want };
         let cases = vec![
             case("quiet sunny sunday", sunday, vec![], false, w(true, 20.0, 10.0),
                 vec!["i'm alive, tonight there have been no alarms or movement.", "it's gonna be a great day", "sunny sunday would make a great hike!"], vec!["at home"]),
@@ -181,8 +247,15 @@ mod tests {
             case("cold sunny", monday, vec![], false, w(true, 5.0, -2.0), vec!["dress warm", "-2°C to 5°C"], vec![]),
             case("cold rainy", monday, vec![], false, w(false, 5.0, 1.0), vec!["at home", "cold"], vec![]),
         ];
+        let mut cases = cases;
+        let ev = |title: &str, time: &str, location: &str| Event { title: title.into(), time: time.into(), location: location.into() };
+        cases.push(Case {
+            events: vec![ev("Messa", "18:30", "Chiesa"), ev("Incontro giovani", "", ""), ev("Rosario", "21", "")],
+            ..case("events", monday, vec![], false, w(true, 20.0, 10.0), vec!["great day (10°C to 20°C).\n\nToday in the calendar:\n- 18:30 Messa (Chiesa)\n- Incontro giovani\n- 21 Rosario"], vec![])
+        });
+        cases.push(Case { events: vec![ev("Messa", "", "")], ..case("events without weather", monday, vec![], false, None, vec!["movement.\n\nToday in the calendar:\n- Messa"], vec!["Today it"]) });
         for c in cases {
-            let got = compose(c.now, &c.alarms, c.paused, c.weather);
+            let got = compose(c.now, &c.alarms, c.paused, c.weather, &c.events);
             for want in c.want {
                 assert!(got.contains(want), "{}: message misses {want:?}:\n{got}", c.name);
             }
@@ -231,6 +304,40 @@ mod tests {
         let (url, _) = weather_server(500, "no");
         assert!(fetch_weather(&url, 0.0, 0.0, TIMEOUT).unwrap_err().contains("status 500"));
         assert!(fetch_weather("http://127.0.0.1:1", 0.0, 0.0, TIMEOUT).is_err());
+    }
+
+    #[test]
+    fn fetches_the_events() {
+        let seen = Arc::new(Mutex::new(Vec::new()));
+        let log = seen.clone();
+        let addr = httpd::spawn(
+            "127.0.0.1:0",
+            0,
+            Arc::new(move |r: &Request| {
+                log.lock().unwrap().push(r.param("date").unwrap_or("").to_owned());
+                Response::new(
+                    200,
+                    "application/json",
+                    r#"{"date":"2026-11-09","events":[{"id":1,"title":"Messa","description":null,"eventTime":"18:30","location":"Chiesa","kind":"messa","dayTitle":null},{"id":2,"title":"Incontro","description":"x","eventTime":null,"location":null,"kind":null,"dayTitle":null}]}"#,
+                )
+            }),
+        )
+        .unwrap();
+        let day = NaiveDate::from_ymd_opt(2026, 11, 9).unwrap();
+        let got = fetch_events(&format!("http://{addr}"), day, TIMEOUT).unwrap();
+        let ev = |title: &str, time: &str, location: &str| Event { title: title.into(), time: time.into(), location: location.into() };
+        assert_eq!(got, [ev("Messa", "18:30", "Chiesa"), ev("Incontro", "", "")]);
+        assert_eq!(*seen.lock().unwrap(), ["2026-11-09"]);
+    }
+
+    #[test]
+    fn bad_events_are_an_error() {
+        let day = NaiveDate::from_ymd_opt(2026, 11, 9).unwrap();
+        for (status, body) in [(200, "{}"), (200, "not json"), (500, "no")] {
+            let addr = httpd::spawn("127.0.0.1:0", 0, Arc::new(move |_: &Request| Response::new(status, "application/json", body))).unwrap();
+            assert!(fetch_events(&format!("http://{addr}"), day, TIMEOUT).is_err(), "{status} {body}");
+        }
+        assert!(fetch_events("http://127.0.0.1:1", day, TIMEOUT).is_err());
     }
 
     #[test]

@@ -278,7 +278,7 @@ pub fn run() -> Result<(), String> {
 
     {
         let (chat, monitor, stop) = (chat.clone(), monitor.clone(), shutdown.clone());
-        thread::spawn(move || dailyreport::run(stop.flag(), config::DAILY_REPORT_HOUR, |now| send_daily_report(&*chat, &monitor, now, "", weather_coordinates(env::get))));
+        thread::spawn(move || dailyreport::run(stop.flag(), config::DAILY_REPORT_HOUR, |now| send_daily_report(&*chat, &monitor, now, "", "", weather_coordinates(env::get))));
     }
 
     {
@@ -416,8 +416,10 @@ pub fn encode_jpeg(frame: &Frame, quality: u8) -> Result<Vec<u8>, String> {
 /// Sends the daily "i'm alive" message with the alarms of the night, from
 /// `NIGHT_START_HOUR` of the previous evening until now. The weather is for
 /// `coordinates`; it is left out if the forecast can't be fetched. `api` is
-/// where the forecast comes from, "" for Open-Meteo.
-pub fn send_daily_report(chat: &dyn Chat, monitor: &Monitor, now: DateTime<Local>, api: &str, (lat, lon): (f64, f64)) {
+/// where the forecast comes from, "" for Open-Meteo. The events of the day
+/// come from the calendar API at `calendar_api`, "" for the parish website;
+/// they are left out if they can't be fetched.
+pub fn send_daily_report(chat: &dyn Chat, monitor: &Monitor, now: DateTime<Local>, api: &str, calendar_api: &str, (lat, lon): (f64, f64)) {
     let weather = match dailyreport::fetch_weather(api, lat, lon, Duration::from_secs(15)) {
         Ok(w) => Some(w),
         Err(e) => {
@@ -425,9 +427,13 @@ pub fn send_daily_report(chat: &dyn Chat, monitor: &Monitor, now: DateTime<Local
             None
         }
     };
+    let events = dailyreport::fetch_events(calendar_api, now.date_naive(), Duration::from_secs(15)).unwrap_or_else(|e| {
+        eprintln!("daily report: {e}");
+        Vec::new()
+    });
     let yesterday = now.date_naive().checked_sub_days(Days::new(1)).unwrap_or(now.date_naive());
     let night_start = dailyreport::at_hour(yesterday, config::NIGHT_START_HOUR);
-    let msg = dailyreport::compose(now, &monitor.alarms_since(night_start), monitor.paused(), weather);
+    let msg = dailyreport::compose(now, &monitor.alarms_since(night_start), monitor.paused(), weather, &events);
     if let Err(e) = chat.send_message(&msg) {
         eprintln!("daily report: {e}");
     }
@@ -651,18 +657,28 @@ mod tests {
             }),
         )
         .unwrap();
-        send_daily_report(&*chat, &m, now, &format!("http://{api}"), (45.5, 9.2));
+        let calendar = httpd::spawn(
+            "127.0.0.1:0",
+            0,
+            Arc::new(|r: &Request| {
+                assert_eq!(r.param("date"), Some("2026-11-03"));
+                Response::new(200, "application/json", r#"{"events":[{"title":"Messa","eventTime":"18:30","location":"Chiesa"}]}"#)
+            }),
+        )
+        .unwrap();
+        send_daily_report(&*chat, &m, now, &format!("http://{api}"), &format!("http://{calendar}"), (45.5, 9.2));
         let Sent::Text(text) = rx.recv_timeout(Duration::from_secs(5)).unwrap() else { panic!("not a text") };
         assert!(text.starts_with("i'm alive, tonight there has been 1 alarm, at 03:15 (alarms are paused"), "{text}");
         assert!(text.contains("it's gonna be a great day (10°C to 20°C)"), "{text}");
+        assert!(text.ends_with("Today in the calendar:\n- 18:30 Messa (Chiesa)"), "{text}");
         assert_eq!(*seen.lock().unwrap(), Some((Some("45.5".into()), Some("9.2".into()))));
     }
 
     #[test]
-    fn the_daily_report_goes_out_without_the_weather() {
+    fn the_daily_report_goes_out_without_the_weather_and_the_events() {
         let (chat, rx) = fake_chat();
         let m = Monitor::new("", NAME_BACKGROUND, &[], Duration::from_secs(5));
-        send_daily_report(&*chat, &m, Local::now(), "http://127.0.0.1:1", (0.0, 0.0));
+        send_daily_report(&*chat, &m, Local::now(), "http://127.0.0.1:1", "http://127.0.0.1:1", (0.0, 0.0));
         let Sent::Text(text) = rx.recv_timeout(Duration::from_secs(5)).unwrap() else { panic!("not a text") };
         assert_eq!(text, "i'm alive, tonight there have been no alarms or movement.");
     }
