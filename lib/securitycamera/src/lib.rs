@@ -21,3 +21,4 @@ pub mod syswatch;
 pub mod telegram;
 pub mod update;
 pub mod util;
+pub mod waveform;

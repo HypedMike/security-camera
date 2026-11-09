@@ -384,13 +384,16 @@ pub fn detection_handler(
         if let Some(graph) = &graph {
             graph.push(score);
         }
-        if !monitor.paused() && score >= monitor.threshold_of(&name) && cooldown_over(&monitor, t.wall) {
+        let threshold = monitor.threshold_of(&name);
+        if !monitor.paused() && score >= threshold && cooldown_over(&monitor, t.wall) {
             monitor.alarm(t.wall);
             if print.alarms {
                 println!("{} alarm: {name} score {score:.4}", t.wall.format("%H:%M:%S%.3f"));
             }
-            alarms::start_alarm(&alarms, t.wall, t.mono, t.frame, &name, score, live.get());
+            alarms::start_alarm(&alarms, t.wall, t.mono, t.frame, &name, score, threshold, live.get());
         }
+        // after the alarm, so the clip it starts has the score of its first frame
+        alarms.clips.score(t.mono, score);
         if print.scores {
             println!("{} {name} score: {score:.4}", t.wall.format("%H:%M:%S%.3f"));
         }
