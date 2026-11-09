@@ -1,4 +1,4 @@
-# Builds the program and runs every test of the Rust workspace. The tests need
+# Runs every test of the Rust workspace. It builds and publishes nothing. The tests need
 # neither a webcam nor internet: they use a fake camera, a fake Telegram and a
 # fake weather service on local ports.
 name: Rust
@@ -32,4 +32,3 @@ jobs:
         with:
           workspaces: rust-lib
       - run: cargo test --release --workspace
-      - run: cargo build --release -p securitycamera
