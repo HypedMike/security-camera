@@ -159,7 +159,7 @@ func main() {
 		fmt.Println("live graph at http://localhost" + config.GraphAddr)
 	}
 
-	stream := streaming.New(video.Track(), streaming.Options{History: config.StreamHistory})
+	stream := streaming.New(video, streaming.Options{History: config.StreamHistory})
 
 	if app != nil {
 		// the camera frames for the mini app's video, only made while somebody watches

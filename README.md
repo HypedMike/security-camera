@@ -35,10 +35,10 @@ It watches the camera, and when it sees motion above a threshold it sends a shor
 
 ## Requirements
 
-- Linux with a V4L2 camera (`/dev/video*`)
+- Linux (a V4L2 camera, `/dev/video*`) or macOS (AVFoundation; grant the camera permission when asked). The camera is read by Rust ([`rust-lib/my_video/`](rust-lib/my_video/)) with [nokhwa](https://crates.io/crates/nokhwa)
 - Go 1.24 or newer
-- A C toolchain, because the camera driver needs cgo: `sudo apt install build-essential linux-libc-dev`
-- Rust (https://rustup.rs), for the background detector, the alarm log, the GIF encoder and store, and the stream history
+- A C toolchain, because the Rust library is linked through cgo: `sudo apt install build-essential linux-libc-dev`
+- Rust (https://rustup.rs), for the background detector, the alarm log, the GIF encoder and store, the stream history, the clip recorder and the camera
 - A Telegram bot token and your chat id (see below)
 
 ## Setup

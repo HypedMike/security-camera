@@ -12,4 +12,6 @@ crate-type = ["staticlib"]
 alarmlog = { path = "../alarmlog" }
 detection = { path = "../detection" }
 gif = { path = "../gif" }
+my_video = { path = "../my_video" }
+recorder = { path = "../recorder" }
 streaming = { path = "../streaming" }
