@@ -16,10 +16,25 @@ use recorder::{Action, Recorder};
 
 use crate::util::lock;
 
-type Done = Box<dyn FnOnce(Vec<RgbaImage>) + Send>;
+/// What a finished clip hands over.
+pub struct Recorded {
+    pub frames: Vec<RgbaImage>,
+    /// When each frame was taken, counted from the start of the clip.
+    pub times: Vec<Duration>,
+    /// The motion score of every camera frame of the clip, with its time.
+    pub scores: Vec<(Duration, f64)>,
+    /// How long the clip lasts.
+    pub span: Duration,
+    /// The score that sets off the alarm.
+    pub threshold: f64,
+}
+
+type Done = Box<dyn FnOnce(Recorded) + Send>;
 
 struct Clip {
-    frames: Vec<RgbaImage>,
+    /// where the clip starts, on the clock of the recorder
+    at: i64,
+    rec: Recorded,
     done: Done,
 }
 
@@ -52,13 +67,29 @@ impl ClipRecorder {
 
     /// Begins a clip with `frame`, taken at `at`, then one frame every
     /// `interval` until `span` has passed. `done` is then called, in its own
-    /// thread, with the frames. [`frame`](ClipRecorder::frame) feeds the
-    /// following frames. Frames are shrunk to at most `width` pixels wide.
-    pub fn start(&self, at: Instant, frame: &Frame, width: usize, span: Duration, interval: Duration, done: impl FnOnce(Vec<RgbaImage>) + Send + 'static) {
+    /// thread, with the frames and the scores. [`frame`](ClipRecorder::frame)
+    /// feeds the following frames and [`score`](ClipRecorder::score) their
+    /// scores. Frames are shrunk to at most `width` pixels wide. `threshold`
+    /// is the score that set the alarm off, kept for the waveform.
+    #[allow(clippy::too_many_arguments)]
+    pub fn start(&self, at: Instant, frame: &Frame, width: usize, span: Duration, interval: Duration, threshold: f64, done: impl FnOnce(Recorded) + Send + 'static) {
         let first = shrink(frame, width);
         let mut inner = lock(&self.inner);
-        let id = inner.timing.start(nanos(self.epoch, at), span.as_nanos() as i64, interval.as_nanos() as i64);
-        inner.clips.insert(id, Clip { frames: vec![first], done: Box::new(done) });
+        let start = nanos(self.epoch, at);
+        let id = inner.timing.start(start, span.as_nanos() as i64, interval.as_nanos() as i64);
+        let rec = Recorded { frames: vec![first], times: vec![Duration::ZERO], scores: Vec::new(), span, threshold };
+        inner.clips.insert(id, Clip { at: start, rec, done: Box::new(done) });
+    }
+
+    /// Called with the motion score of the frame taken at `ts`: every clip
+    /// being recorded keeps it. Call it after [`frame`](ClipRecorder::frame)
+    /// of the same frame, and after [`start`](ClipRecorder::start) if that
+    /// frame set an alarm off, so the clip it starts has its score too.
+    pub fn score(&self, ts: Instant, score: f64) {
+        let ts = nanos(self.epoch, ts);
+        for c in lock(&self.inner).clips.values_mut() {
+            c.rec.scores.push((Duration::from_nanos((ts - c.at).max(0) as u64), score));
+        }
     }
 
     /// Called for every frame of the stream: it keeps the ones the clips being
@@ -72,12 +103,13 @@ impl ClipRecorder {
                 Action::Keep => {
                     let copy = shrunk.get_or_insert_with(|| shrink(frame, width)).clone();
                     if let Some(c) = inner.clips.get_mut(&e.clip) {
-                        c.frames.push(copy);
+                        c.rec.frames.push(copy);
+                        c.rec.times.push(Duration::from_nanos((nanos(self.epoch, ts) - c.at).max(0) as u64));
                     }
                 }
                 Action::Finish => {
                     if let Some(c) = inner.clips.remove(&e.clip) {
-                        thread::spawn(move || (c.done)(c.frames));
+                        thread::spawn(move || (c.done)(c.rec));
                     }
                 }
             }
@@ -122,12 +154,13 @@ mod tests {
         let (tx, rx) = mpsc::channel();
         let t0 = Instant::now();
         // 1 second at 2 frames a second
-        rec.start(t0, &frame(0), 0, ms(1000), ms(500), move |f| tx.send(f).unwrap());
+        rec.start(t0, &frame(0), 0, ms(1000), ms(500), 0.5, move |f| tx.send(f).unwrap());
         assert_eq!(rec.active(), 1);
         feed(&rec, t0, 12);
-        let frames = rx.recv_timeout(Duration::from_secs(5)).unwrap();
-        let reds: Vec<u8> = frames.iter().map(|f| f.pix[0]).collect();
+        let got = rx.recv_timeout(Duration::from_secs(5)).unwrap();
+        let reds: Vec<u8> = got.frames.iter().map(|f| f.pix[0]).collect();
         assert_eq!(reds, [0, 5], "the alarm's frame, then the one at 0.5 s; the one at 1 s ends the clip");
+        assert_eq!(got.times, [Duration::ZERO, ms(500)]);
         assert_eq!(rec.active(), 0);
     }
 
@@ -137,9 +170,9 @@ mod tests {
         let (tx, rx) = mpsc::channel();
         let t0 = Instant::now();
         let tx2 = tx.clone();
-        rec.start(t0, &frame(0), 0, ms(1000), ms(500), move |f| tx.send(("a", f.len())).unwrap());
+        rec.start(t0, &frame(0), 0, ms(1000), ms(500), 0.5, move |f| tx.send(("a", f.frames.len())).unwrap());
         feed(&rec, t0, 5);
-        rec.start(t0 + ms(500), &frame(0), 0, ms(1000), ms(500), move |f| tx2.send(("b", f.len())).unwrap());
+        rec.start(t0 + ms(500), &frame(0), 0, ms(1000), ms(500), 0.5, move |f| tx2.send(("b", f.frames.len())).unwrap());
         assert_eq!(rec.active(), 2);
         for i in 6..=20 {
             rec.frame(&frame(i), t0 + ms(100 * u64::from(i)), 0);
@@ -158,10 +191,37 @@ mod tests {
         let rec = ClipRecorder::new();
         let (tx, rx) = mpsc::channel();
         let t0 = Instant::now();
-        rec.start(t0, &big, 4, ms(100), ms(100), move |f| tx.send(f).unwrap());
+        rec.start(t0, &big, 4, ms(100), ms(100), 0.5, move |f| tx.send(f).unwrap());
         rec.frame(&big, t0 + ms(100), 4);
-        let frames = rx.recv_timeout(Duration::from_secs(5)).unwrap();
-        assert_eq!((frames[0].width, frames[0].height), (4, 2));
+        let got = rx.recv_timeout(Duration::from_secs(5)).unwrap();
+        assert_eq!((got.frames[0].width, got.frames[0].height), (4, 2));
+    }
+
+    #[test]
+    fn a_clip_keeps_the_scores_of_its_span_with_their_time() {
+        let rec = ClipRecorder::new();
+        let (tx, rx) = mpsc::channel();
+        let t0 = Instant::now();
+        rec.start(t0, &frame(0), 0, ms(300), ms(100), 0.25, move |r| tx.send(r).unwrap());
+        // the score of the frame that set the alarm off comes after start()
+        rec.score(t0, 0.9);
+        for i in 1..=3u64 {
+            rec.frame(&frame(i as u8), t0 + ms(100 * i), 0);
+            rec.score(t0 + ms(100 * i), i as f64 / 10.0);
+        }
+        let got = rx.recv_timeout(Duration::from_secs(5)).unwrap();
+        assert_eq!(got.scores, [(ms(0), 0.9), (ms(100), 0.1), (ms(200), 0.2)], "the frame at 300 ms ends the clip");
+        assert_eq!((got.span, got.threshold), (ms(300), 0.25));
+        assert_eq!(got.times, [ms(0), ms(100), ms(200)]);
+    }
+
+    #[test]
+    fn scores_before_the_clip_started_count_as_its_start() {
+        let rec = ClipRecorder::new();
+        let t0 = Instant::now() + ms(1000);
+        rec.start(t0, &frame(0), 0, ms(100), ms(100), 0.0, |_| {});
+        rec.score(t0 - ms(50), 1.0);
+        assert_eq!(lock(&rec.inner).clips.values().next().unwrap().rec.scores, [(Duration::ZERO, 1.0)]);
     }
 
     #[test]

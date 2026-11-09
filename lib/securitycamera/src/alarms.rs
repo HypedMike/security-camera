@@ -12,13 +12,14 @@ use std::time::{Duration, Instant};
 use alarmlog::{Action, Log};
 use chrono::{DateTime, Local, Offset};
 use gif::store::{Error as StoreError, Store};
-use gif::{Image, RgbaImage};
+use gif::Image;
 use my_video::Frame;
 
-use crate::clips::ClipRecorder;
+use crate::clips::{ClipRecorder, Recorded};
 use crate::config::Values;
 use crate::telegram::{Chat, Reaction};
 use crate::util::lock;
+use crate::waveform::{self, Trace};
 
 /// An alarm in an [`AlarmBook`].
 #[derive(Clone, Debug)]
@@ -120,9 +121,13 @@ pub fn new_code() -> Result<String, String> {
 /// it: the frame that set it off and the ones of the next `v.alarm_gif_span`,
 /// at `v.alarm_gif_fps` a second. The GIF is saved under the code in the
 /// message, and goes out when somebody reacts to the message with any emoji.
+/// The GIF has the waveform of the motion score along the bottom: `threshold`
+/// is the score that set the alarm off, drawn on it. The caller feeds the
+/// scores with [`ClipRecorder::score`], the one of `frame` included.
 /// `frame` is only valid until the caller returns; `mono` is when it was
 /// taken, on the clock the following frames are timed with.
-pub fn start_alarm(alarms: &Arc<Alarms>, at: DateTime<Local>, mono: Instant, frame: &Frame, detector: &str, score: f64, v: Values) {
+#[allow(clippy::too_many_arguments)]
+pub fn start_alarm(alarms: &Arc<Alarms>, at: DateTime<Local>, mono: Instant, frame: &Frame, detector: &str, score: f64, threshold: f64, v: Values) {
     // without a code the alarm still goes out, it just has no GIF
     let code = new_code();
     let a = alarms.book.begin(at, detector, score, code.as_deref().unwrap_or(""));
@@ -145,11 +150,11 @@ pub fn start_alarm(alarms: &Arc<Alarms>, at: DateTime<Local>, mono: Instant, fra
     let delay = ((interval.as_millis() / 10) as u16).max(1);
     let done = {
         let alarms = alarms.clone();
-        move |frames: Vec<RgbaImage>| {
+        move |recorded: Recorded| {
             let result = match (&code, &alarms.gifs) {
                 (Err(e), _) => Err(e.clone()),
                 (Ok(_), None) => Err("GIFs are not being saved".to_owned()),
-                (Ok(code), Some(gifs)) => save_gif(gifs, code, &frames, delay, v),
+                (Ok(code), Some(gifs)) => save_gif(gifs, code, recorded, delay, v),
             };
             if let Err(e) = &result {
                 eprintln!("alarm gif: {e}");
@@ -160,12 +165,17 @@ pub fn start_alarm(alarms: &Arc<Alarms>, at: DateTime<Local>, mono: Instant, fra
             }
         }
     };
-    alarms.clips.start(mono, frame, v.hd_gif_width, v.alarm_gif_span, interval, done);
+    alarms.clips.start(mono, frame, v.hd_gif_width, v.alarm_gif_span, interval, threshold, done);
 }
 
-/// Encodes `frames` as a GIF, `delay` hundredths of a second apart, and saves
-/// it under `code`.
-fn save_gif(gifs: &Store, code: &str, frames: &[RgbaImage], delay: u16, v: Values) -> Result<(), String> {
+/// Draws the waveform on the frames of `rec`, encodes them as a GIF, `delay`
+/// hundredths of a second apart, and saves it under `code`.
+fn save_gif(gifs: &Store, code: &str, rec: Recorded, delay: u16, v: Values) -> Result<(), String> {
+    let Recorded { mut frames, times, scores, span, threshold } = rec;
+    let trace = Trace { scores: &scores, span, threshold };
+    for (frame, &t) in frames.iter_mut().zip(&times) {
+        waveform::overlay(frame, &trace, t);
+    }
     let images: Vec<Image> = frames.iter().map(|f| Image::Rgba { data: &f.pix, width: f.width, height: f.height, stride: f.width * 4 }).collect();
     let data = gif::encode(&images, delay, v.hd_gif_dither).ok_or("gif: no images")?;
     gifs.save(code, &data).map_err(|e| e.to_string())
@@ -330,7 +340,7 @@ pub(crate) mod tests {
         let (chat, rx) = fake_chat();
         let a = alarms(chat, true);
         let (t0, at) = (Instant::now(), Local::now());
-        start_alarm(&a, at, t0, &frame(0), "background", 0.0123, values());
+        start_alarm(&a, at, t0, &frame(0), "background", 0.0123, 0.01, values());
 
         let message = text(&rx);
         assert!(message.starts_with(&format!("Alarm: motion detected at {} (background score 0.0123)", at.format("%H:%M:%S"))), "{message}");
@@ -369,7 +379,7 @@ pub(crate) mod tests {
         let (chat, rx) = fake_chat();
         let a = alarms(chat, true);
         let t0 = Instant::now();
-        start_alarm(&a, Local::now(), t0, &frame(0), "difference", 0.5, values());
+        start_alarm(&a, Local::now(), t0, &frame(0), "difference", 0.5, 0.1, values());
         text(&rx);
         wait_posted(&a);
         // the GIF is still recording: nothing to send yet
@@ -387,7 +397,7 @@ pub(crate) mod tests {
         let (chat, rx) = fake_chat();
         let a = alarms(chat, false);
         let t0 = Instant::now();
-        start_alarm(&a, Local::now(), t0, &frame(0), "background", 0.1, values());
+        start_alarm(&a, Local::now(), t0, &frame(0), "background", 0.1, 0.05, values());
         let message = text(&rx);
         assert!(!message.contains("React"), "{message}");
         wait_posted(&a);
@@ -407,7 +417,7 @@ pub(crate) mod tests {
         let (chat, rx) = fake_chat();
         let a = alarms(chat.clone(), true);
         let t0 = Instant::now();
-        start_alarm(&a, Local::now(), t0, &frame(0), "background", 0.1, values());
+        start_alarm(&a, Local::now(), t0, &frame(0), "background", 0.1, 0.05, values());
         let code = code_of(&text(&rx));
         wait_posted(&a);
         finish_clip(&a, t0);
@@ -447,7 +457,7 @@ pub(crate) mod tests {
         let (chat, rx) = fake_chat();
         *lock(&chat.fail) = true;
         let a = alarms(chat, true);
-        start_alarm(&a, Local::now(), Instant::now(), &frame(0), "background", 0.1, values());
+        start_alarm(&a, Local::now(), Instant::now(), &frame(0), "background", 0.1, 0.05, values());
         assert!(rx.recv_timeout(Duration::from_millis(200)).is_err());
         assert_eq!(a.clips.active(), 1, "the recording goes on without the message");
     }
