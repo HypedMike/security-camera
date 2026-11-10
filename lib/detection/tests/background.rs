@@ -3,7 +3,10 @@ use detection::{Background, Frame};
 struct Rng(u64);
 impl Rng {
     fn below(&mut self, n: u32) -> u32 {
-        self.0 = self.0.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+        self.0 = self
+            .0
+            .wrapping_mul(6364136223846793005)
+            .wrapping_add(1442695040888963407);
         ((self.0 >> 33) as u32) % n
     }
 }
@@ -26,7 +29,13 @@ fn scene(rng: &mut Rng, x: usize, y: usize, size: usize, shift: i32) -> Vec<u8> 
 }
 
 fn score(d: &mut Background, img: &[u8]) -> f64 {
-    d.score(Frame::Rgba { data: img, width: 640, height: 480, stride: 640 * 4 }).unwrap()
+    d.score(Frame::Rgba {
+        data: img,
+        width: 640,
+        height: 480,
+        stride: 640 * 4,
+    })
+    .unwrap()
 }
 
 fn warm(d: &mut Background, rng: &mut Rng) {
@@ -65,7 +74,11 @@ fn lighting() {
     let mut d = Background::new();
     warm(&mut d, &mut rng);
     for i in 0..30 {
-        assert_eq!(score(&mut d, &scene(&mut rng, 0, 0, 0, 60)), 0.0, "frame {i}");
+        assert_eq!(
+            score(&mut d, &scene(&mut rng, 0, 0, 0, 60)),
+            0.0,
+            "frame {i}"
+        );
     }
     let mut s = 0.0;
     for _ in 0..5 {
@@ -93,7 +106,11 @@ fn still_object_absorbed() {
     for _ in 0..d.still + 2 * d.window {
         score(&mut d, &scene(&mut rng, 0, 0, 0, 0));
     }
-    assert_eq!(score(&mut d, &scene(&mut rng, 0, 0, 0, 0)), 0.0, "empty spot scored");
+    assert_eq!(
+        score(&mut d, &scene(&mut rng, 0, 0, 0, 0)),
+        0.0,
+        "empty spot scored"
+    );
     // and new motion is still detected
     let mut s = 0.0;
     for i in 0..5 {
@@ -117,7 +134,10 @@ fn no_ghost_after_activity() {
         }
     }
     if let Some(l) = last {
-        assert!(l < d.still + d.window, "empty scene still scored after {l} frames");
+        assert!(
+            l < d.still + d.window,
+            "empty scene still scored after {l} frames"
+        );
     }
 }
 
@@ -128,7 +148,11 @@ fn reset() {
     warm(&mut d, &mut rng);
     d.reset();
     for i in 0..=d.settle {
-        assert_eq!(score(&mut d, &scene(&mut rng, 300, 200, 40, 0)), 0.0, "frame {i}");
+        assert_eq!(
+            score(&mut d, &scene(&mut rng, 300, 200, 40, 0)),
+            0.0,
+            "frame {i}"
+        );
     }
 }
 
@@ -145,7 +169,13 @@ fn gray_plane() {
         y
     };
     let run = |d: &mut Background, f: &[u8]| {
-        d.score(Frame::Gray { data: f, width: 1280, height: 720, stride: 1280 }).unwrap()
+        d.score(Frame::Gray {
+            data: f,
+            width: 1280,
+            height: 720,
+            stride: 1280,
+        })
+        .unwrap()
     };
     for _ in 0..30 {
         run(&mut d, &frame(false));
@@ -156,5 +186,8 @@ fn gray_plane() {
     }
     // 60x60 source pixels are 15x15 of the 320x180 detection image
     let want = 225.0 / (320.0 * 180.0);
-    assert!(s > want * 0.8 && s < want * 1.8, "score {s}, want about {want}");
+    assert!(
+        s > want * 0.8 && s < want * 1.8,
+        "score {s}, want about {want}"
+    );
 }

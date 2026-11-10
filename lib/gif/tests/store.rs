@@ -11,8 +11,12 @@ fn dir(name: &str) -> std::path::PathBuf {
 
 fn age(root: &Path, code: &str, secs_ago: u64) {
     let t = SystemTime::now() - Duration::from_secs(secs_ago);
-    File::options().write(true).open(root.join(format!("{code}.gif"))).unwrap()
-        .set_times(FileTimes::new().set_modified(t)).unwrap();
+    File::options()
+        .write(true)
+        .open(root.join(format!("{code}.gif")))
+        .unwrap()
+        .set_times(FileTimes::new().set_modified(t))
+        .unwrap();
 }
 
 #[test]
@@ -29,9 +33,14 @@ fn save_get() {
 fn invalid_codes() {
     let root = dir("invalid");
     let s = Store::new(&root, 100).unwrap();
-    for code in ["", "../x", "abc12", "abc1234", "ghijkl", "..%2f..", "a/b123", "ABC123"] {
+    for code in [
+        "", "../x", "abc12", "abc1234", "ghijkl", "..%2f..", "a/b123", "ABC123",
+    ] {
         assert!(!valid_code(code), "{code}");
-        assert!(matches!(s.save(code, b""), Err(Error::InvalidCode)), "{code}");
+        assert!(
+            matches!(s.save(code, b""), Err(Error::InvalidCode)),
+            "{code}"
+        );
     }
     for code in ["", "../x", "abc12", "abc1234", "ghijkl", "a/b123"] {
         assert!(matches!(s.get(code), Err(Error::NotFound)), "{code}");
@@ -48,7 +57,12 @@ fn evicts_oldest_first() {
         age(&root, code, 3600 - 60 * i as u64);
     }
     s.save("000004", &[b'x'; 10]).unwrap();
-    for (code, present) in [("000001", false), ("000002", false), ("000003", true), ("000004", true)] {
+    for (code, present) in [
+        ("000001", false),
+        ("000002", false),
+        ("000003", true),
+        ("000004", true),
+    ] {
         assert_eq!(s.get(code).is_ok(), present, "{code}");
     }
     fs::remove_dir_all(root).unwrap();

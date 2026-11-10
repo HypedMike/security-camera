@@ -35,7 +35,12 @@ pub struct Trace<'a> {
 /// small.
 pub fn overlay(img: &mut RgbaImage, trace: &Trace, now: Duration) {
     let (w, h) = (img.width, img.height);
-    if trace.scores.is_empty() || w < 2 || h < MIN_HEIGHT || img.pix.len() != w * h * 4 || trace.span.is_zero() {
+    if trace.scores.is_empty()
+        || w < 2
+        || h < MIN_HEIGHT
+        || img.pix.len() != w * h * 4
+        || trace.span.is_zero()
+    {
         return;
     }
     let strip = (h / STRIP_DIVISOR).max(MIN_STRIP);
@@ -48,14 +53,30 @@ pub fn overlay(img: &mut RgbaImage, trace: &Trace, now: Duration) {
         }
     }
 
-    let max = trace.scores.iter().map(|s| s.1).fold(trace.threshold, f64::max) * 1.1;
-    let max = if max.is_finite() && max > 0.0 { max } else { 1.0 };
+    let max = trace
+        .scores
+        .iter()
+        .map(|s| s.1)
+        .fold(trace.threshold, f64::max)
+        * 1.1;
+    let max = if max.is_finite() && max > 0.0 {
+        max
+    } else {
+        1.0
+    };
     // row of a value inside the strip, with one pixel of margin
     let row = |v: f64| -> usize {
-        let v = if v.is_finite() { v.clamp(0.0, max) } else { 0.0 };
+        let v = if v.is_finite() {
+            v.clamp(0.0, max)
+        } else {
+            0.0
+        };
         y0 + strip - 2 - ((strip - 3) as f64 * v / max).round() as usize
     };
-    let col = |t: Duration| -> usize { ((w - 1) as f64 * (t.as_secs_f64() / trace.span.as_secs_f64()).clamp(0.0, 1.0)).round() as usize };
+    let col = |t: Duration| -> usize {
+        ((w - 1) as f64 * (t.as_secs_f64() / trace.span.as_secs_f64()).clamp(0.0, 1.0)).round()
+            as usize
+    };
 
     // the waveform: the highest score that falls in each column, the gaps
     // between the camera frames filled by drawing straight lines
@@ -116,7 +137,11 @@ mod tests {
     use super::*;
 
     fn picture(w: usize, h: usize) -> RgbaImage {
-        RgbaImage { width: w, height: h, pix: [200, 200, 200, 255].repeat(w * h) }
+        RgbaImage {
+            width: w,
+            height: h,
+            pix: [200, 200, 200, 255].repeat(w * h),
+        }
     }
 
     fn px(img: &RgbaImage, x: usize, y: usize) -> [u8; 3] {
@@ -134,7 +159,11 @@ mod tests {
     }
 
     fn trace(scores: &[(Duration, f64)]) -> Trace<'_> {
-        Trace { scores, span: ms(1000), threshold: 0.5 }
+        Trace {
+            scores,
+            span: ms(1000),
+            threshold: 0.5,
+        }
     }
 
     #[test]
@@ -144,7 +173,11 @@ mod tests {
         overlay(&mut img, &trace(&scores), ms(0));
         let y0 = 100 - strip(100);
         assert_eq!(px(&img, 50, y0 - 1), [200, 200, 200], "above the strip");
-        assert_eq!(px(&img, 70, y0), [80, 80, 80], "the strip darkens the picture");
+        assert_eq!(
+            px(&img, 70, y0),
+            [80, 80, 80],
+            "the strip darkens the picture"
+        );
     }
 
     #[test]
@@ -152,9 +185,19 @@ mod tests {
         let mut img = picture(101, 100);
         let scores = [(ms(0), 0.0), (ms(500), 1.0), (ms(1000), 0.0)];
         overlay(&mut img, &trace(&scores), ms(1000));
-        let first_line = |x: usize| (0..100).find(|&y| px(&img, x, y) == LINE).expect("a line pixel");
-        assert!(first_line(50) < first_line(10), "the middle of the clip is the peak");
-        assert!(first_line(50) <= 100 - strip(100) + 3, "the peak reaches the top of the strip");
+        let first_line = |x: usize| {
+            (0..100)
+                .find(|&y| px(&img, x, y) == LINE)
+                .expect("a line pixel")
+        };
+        assert!(
+            first_line(50) < first_line(10),
+            "the middle of the clip is the peak"
+        );
+        assert!(
+            first_line(50) <= 100 - strip(100) + 3,
+            "the peak reaches the top of the strip"
+        );
     }
 
     #[test]
@@ -164,7 +207,10 @@ mod tests {
         overlay(&mut img, &trace(&scores), ms(250));
         assert_eq!(px(&img, 25, 99), CURSOR);
         assert_eq!(px(&img, 25, 100 - strip(100)), CURSOR);
-        assert!((0..100).any(|y| px(&img, 0, y) == THRESHOLD), "the threshold line starts at the left edge");
+        assert!(
+            (0..100).any(|y| px(&img, 0, y) == THRESHOLD),
+            "the threshold line starts at the left edge"
+        );
     }
 
     #[test]
@@ -180,9 +226,22 @@ mod tests {
     #[test]
     fn odd_scores_do_not_panic() {
         let mut img = picture(64, 64);
-        let scores = [(ms(0), f64::NAN), (ms(10), f64::INFINITY), (ms(5000), -1.0), (ms(20), 0.0)];
+        let scores = [
+            (ms(0), f64::NAN),
+            (ms(10), f64::INFINITY),
+            (ms(5000), -1.0),
+            (ms(20), 0.0),
+        ];
         overlay(&mut img, &trace(&scores), ms(9999));
         let mut flat = picture(64, 64);
-        overlay(&mut flat, &Trace { scores: &[(ms(0), 0.0)], span: ms(1000), threshold: 0.0 }, ms(0));
+        overlay(
+            &mut flat,
+            &Trace {
+                scores: &[(ms(0), 0.0)],
+                span: ms(1000),
+                threshold: 0.0,
+            },
+            ms(0),
+        );
     }
 }

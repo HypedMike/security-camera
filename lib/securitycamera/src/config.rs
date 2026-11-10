@@ -15,6 +15,9 @@ pub const ALARM_COOLDOWN: Duration = Duration::from_secs(5);
 // it as a reply to the alarm message when somebody reacts to it.
 pub const ALARM_GIF_SPAN: Duration = Duration::from_secs(5);
 pub const ALARM_GIF_FPS: u32 = 2;
+/// How much of the camera from before the alarm goes in the GIF: the program
+/// keeps this much in memory all the time.
+pub const ALARM_GIF_PRE: Duration = Duration::from_secs(2);
 
 /// The largest width of the GIF frames: the full 640x480.
 pub const HD_GIF_WIDTH: usize = 640;
@@ -167,7 +170,10 @@ mod tests {
     fn live_starts_at_the_constants_and_changes() {
         let live = Live::new();
         assert_eq!(live.get().alarm_gif_fps, ALARM_GIF_FPS);
-        let v = Values { alarm_gif_fps: 4, ..live.get() };
+        let v = Values {
+            alarm_gif_fps: 4,
+            ..live.get()
+        };
         live.set(v);
         assert_eq!(live.get(), v);
     }

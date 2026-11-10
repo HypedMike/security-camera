@@ -77,7 +77,10 @@ fn open_any_with(
         match open(&id) {
             Ok(c) => return Ok(c),
             Err(e) => {
-                let label = devs.iter().find(|d| d.id == id).map_or("", |d| d.label.as_str());
+                let label = devs
+                    .iter()
+                    .find(|d| d.id == id)
+                    .map_or("", |d| d.label.as_str());
                 eprintln!("camera {:?} can't be opened: {e}", describe(label, &id));
                 first_err.get_or_insert(e);
             }
@@ -139,7 +142,11 @@ impl Capture {
         F: FnOnce() -> Result<Box<dyn Source>, String> + Send + 'static,
     {
         let shared = Arc::new(Shared {
-            slot: Mutex::new(Slot { frame: Frame::default(), seq: 0, error: None }),
+            slot: Mutex::new(Slot {
+                frame: Frame::default(),
+                seq: 0,
+                error: None,
+            }),
             ready: Condvar::new(),
             stop: AtomicBool::new(false),
         });
@@ -148,7 +155,11 @@ impl Capture {
             let shared = shared.clone();
             thread::spawn(move || run(&shared, warmup_frames, open, opened_tx))
         };
-        let capture = Capture { shared, thread: Mutex::new(Some(thread)), last_seq: Mutex::new(0) };
+        let capture = Capture {
+            shared,
+            thread: Mutex::new(Some(thread)),
+            last_seq: Mutex::new(0),
+        };
         match opened_rx.recv() {
             Ok(Ok(())) => Ok(capture),
             Ok(Err(e)) => Err(e),
@@ -242,11 +253,17 @@ mod tests {
     use std::time::Duration;
 
     fn dev(id: &str, label: &str) -> Device {
-        Device { id: id.into(), label: label.into() }
+        Device {
+            id: id.into(),
+            label: label.into(),
+        }
     }
 
     fn devs() -> Vec<Device> {
-        vec![dev("x1", "usb-Cam-video-index0;video0"), dev("x2", "usb-Cam-video-index1;video1")]
+        vec![
+            dev("x1", "usb-Cam-video-index0;video0"),
+            dev("x2", "usb-Cam-video-index1;video1"),
+        ]
     }
 
     #[test]
@@ -297,8 +314,17 @@ mod tests {
         }
     }
 
-    fn counter(limit: u8, delay_ms: u64) -> impl FnOnce() -> Result<Box<dyn Source>, String> + Send + 'static {
-        move || Ok(Box::new(Counter { n: 0, limit, delay: Duration::from_millis(delay_ms) }) as Box<dyn Source>)
+    fn counter(
+        limit: u8,
+        delay_ms: u64,
+    ) -> impl FnOnce() -> Result<Box<dyn Source>, String> + Send + 'static {
+        move || {
+            Ok(Box::new(Counter {
+                n: 0,
+                limit,
+                delay: Duration::from_millis(delay_ms),
+            }) as Box<dyn Source>)
+        }
     }
 
     #[test]
@@ -360,7 +386,11 @@ mod tests {
         let mut tried = vec![];
         let r = open_any_with(&d, "x2", |id| {
             tried.push(id.to_string());
-            if id == "x1" { Capture::start(0, counter(255, 1)) } else { Err(format!("{id} is broken")) }
+            if id == "x1" {
+                Capture::start(0, counter(255, 1))
+            } else {
+                Err(format!("{id} is broken"))
+            }
         });
         assert!(r.is_ok());
         assert_eq!(tried, ["x2", "x1"]);

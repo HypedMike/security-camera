@@ -35,7 +35,10 @@ pub struct Request {
 impl Request {
     /// The first value of the query parameter `name`.
     pub fn param(&self, name: &str) -> Option<&str> {
-        self.query.iter().find(|(k, _)| k == name).map(|(_, v)| v.as_str())
+        self.query
+            .iter()
+            .find(|(k, _)| k == name)
+            .map(|(_, v)| v.as_str())
     }
 }
 
@@ -56,7 +59,11 @@ pub struct Response {
 
 impl Response {
     pub fn new(status: u16, content_type: &str, body: impl Into<Vec<u8>>) -> Response {
-        Response { status, headers: vec![("Content-Type".into(), content_type.into())], body: Body::Bytes(body.into()) }
+        Response {
+            status,
+            headers: vec![("Content-Type".into(), content_type.into())],
+            body: Body::Bytes(body.into()),
+        }
     }
 
     pub fn text(status: u16, text: &str) -> Response {
@@ -64,11 +71,22 @@ impl Response {
     }
 
     pub fn no_content() -> Response {
-        Response { status: 204, headers: Vec::new(), body: Body::Bytes(Vec::new()) }
+        Response {
+            status: 204,
+            headers: Vec::new(),
+            body: Body::Bytes(Vec::new()),
+        }
     }
 
-    pub fn stream(content_type: &str, f: impl FnOnce(&mut TcpStream) -> io::Result<()> + Send + 'static) -> Response {
-        Response { status: 200, headers: vec![("Content-Type".into(), content_type.into())], body: Body::Stream(Box::new(f)) }
+    pub fn stream(
+        content_type: &str,
+        f: impl FnOnce(&mut TcpStream) -> io::Result<()> + Send + 'static,
+    ) -> Response {
+        Response {
+            status: 200,
+            headers: vec![("Content-Type".into(), content_type.into())],
+            body: Body::Stream(Box::new(f)),
+        }
     }
 
     pub fn header(mut self, name: &str, value: &str) -> Response {
@@ -87,7 +105,11 @@ pub fn serve(listener: TcpListener, max_body: usize, handler: Handler) {
         let Ok(mut conn) = conn else { continue };
         if active.fetch_add(1, Ordering::SeqCst) >= MAX_CONNECTIONS {
             active.fetch_sub(1, Ordering::SeqCst);
-            let _ = write_response(&mut conn, Response::text(503, "too many connections"), false);
+            let _ = write_response(
+                &mut conn,
+                Response::text(503, "too many connections"),
+                false,
+            );
             continue;
         }
         let (active, handler) = (active.clone(), handler.clone());
@@ -100,7 +122,11 @@ pub fn serve(listener: TcpListener, max_body: usize, handler: Handler) {
 
 /// Binds `addr` and serves it in a new thread. Returns the address it listens
 /// on (useful with port 0).
-pub fn spawn(addr: impl ToSocketAddrs, max_body: usize, handler: Handler) -> io::Result<std::net::SocketAddr> {
+pub fn spawn(
+    addr: impl ToSocketAddrs,
+    max_body: usize,
+    handler: Handler,
+) -> io::Result<std::net::SocketAddr> {
     let listener = TcpListener::bind(addr)?;
     let local = listener.local_addr()?;
     thread::spawn(move || serve(listener, max_body, handler));
@@ -112,7 +138,9 @@ fn handle(mut conn: TcpStream, max_body: usize, handler: &Handler) -> io::Result
     conn.set_write_timeout(Some(WRITE_TIMEOUT))?;
     let req = match read_request(&mut BufReader::new(&conn), max_body) {
         Ok(r) => r,
-        Err(Bad(status, why)) => return write_response(&mut conn, Response::text(status, why), false),
+        Err(Bad(status, why)) => {
+            return write_response(&mut conn, Response::text(status, why), false);
+        }
     };
     let head = req.method == "HEAD";
     if req.method != "GET" && req.method != "HEAD" && req.method != "POST" {
@@ -128,16 +156,23 @@ fn read_request(r: &mut impl BufRead, max_body: usize) -> Result<Request, Bad> {
     let mut line = |r: &mut dyn BufRead| -> Result<String, Bad> {
         let mut buf = Vec::new();
         // one byte past the limit tells a line that is too long from one that fits
-        let n = r.take((MAX_HEADER_BYTES - seen + 1) as u64).read_until(b'\n', &mut buf).map_err(|_| Bad(400, "bad request"))?;
+        let n = r
+            .take((MAX_HEADER_BYTES - seen + 1) as u64)
+            .read_until(b'\n', &mut buf)
+            .map_err(|_| Bad(400, "bad request"))?;
         seen += n;
         if n == 0 || seen > MAX_HEADER_BYTES {
             return Err(Bad(431, "request too large"));
         }
-        Ok(String::from_utf8_lossy(&buf).trim_end_matches(['\r', '\n']).to_owned())
+        Ok(String::from_utf8_lossy(&buf)
+            .trim_end_matches(['\r', '\n'])
+            .to_owned())
     };
     let first = line(r)?;
     let mut parts = first.split(' ');
-    let (Some(method), Some(target), Some(version), None) = (parts.next(), parts.next(), parts.next(), parts.next()) else {
+    let (Some(method), Some(target), Some(version), None) =
+        (parts.next(), parts.next(), parts.next(), parts.next())
+    else {
         return Err(Bad(400, "bad request"));
     };
     if !version.starts_with("HTTP/1.") || !target.starts_with('/') {
@@ -147,23 +182,29 @@ fn read_request(r: &mut impl BufRead, max_body: usize) -> Result<Request, Bad> {
     for _ in 0..=MAX_HEADERS {
         let h = line(r)?;
         if h.is_empty() {
-            let url = url::Url::parse(&format!("http://localhost{target}")).map_err(|_| Bad(400, "bad request"))?;
+            let url = url::Url::parse(&format!("http://localhost{target}"))
+                .map_err(|_| Bad(400, "bad request"))?;
             let mut body = vec![0u8; content_length];
-            r.read_exact(&mut body).map_err(|_| Bad(400, "bad request"))?;
+            r.read_exact(&mut body)
+                .map_err(|_| Bad(400, "bad request"))?;
             return Ok(Request {
                 method: method.to_owned(),
                 path: url.path().to_owned(),
-                query: url.query_pairs().map(|(k, v)| (k.into_owned(), v.into_owned())).collect(),
+                query: url
+                    .query_pairs()
+                    .map(|(k, v)| (k.into_owned(), v.into_owned()))
+                    .collect(),
                 body,
             });
         }
         if let Some((name, value)) = h.split_once(':')
-            && name.eq_ignore_ascii_case("content-length") {
-                content_length = value.trim().parse().map_err(|_| Bad(400, "bad request"))?;
-                if content_length > max_body {
-                    return Err(Bad(413, "body too large"));
-                }
+            && name.eq_ignore_ascii_case("content-length")
+        {
+            content_length = value.trim().parse().map_err(|_| Bad(400, "bad request"))?;
+            if content_length > max_body {
+                return Err(Bad(413, "body too large"));
             }
+        }
     }
     Err(Bad(431, "too many headers"))
 }
@@ -184,7 +225,11 @@ fn reason(status: u16) -> &'static str {
 }
 
 fn write_response(conn: &mut TcpStream, resp: Response, head_only: bool) -> io::Result<()> {
-    let mut out = format!("HTTP/1.1 {} {}\r\nConnection: close\r\n", resp.status, reason(resp.status));
+    let mut out = format!(
+        "HTTP/1.1 {} {}\r\nConnection: close\r\n",
+        resp.status,
+        reason(resp.status)
+    );
     for (k, v) in &resp.headers {
         out.push_str(&format!("{k}: {v}\r\n"));
     }
@@ -243,7 +288,15 @@ mod tests {
             "127.0.0.1:0",
             16,
             Arc::new(|req: &Request| match req.path.as_str() {
-                "/echo" => Response::text(200, &format!("{} {:?} {:?}", req.method, req.param("a"), String::from_utf8_lossy(&req.body))),
+                "/echo" => Response::text(
+                    200,
+                    &format!(
+                        "{} {:?} {:?}",
+                        req.method,
+                        req.param("a"),
+                        String::from_utf8_lossy(&req.body)
+                    ),
+                ),
                 "/stream" => Response::stream("text/plain", |w| w.write_all(b"one\ntwo\n")),
                 _ => Response::text(404, "no"),
             }),
@@ -253,7 +306,10 @@ mod tests {
 
     #[test]
     fn answers_get_with_a_decoded_query() {
-        let r = raw(server(), "GET /echo?a=x%20y&b=2 HTTP/1.1\r\nHost: x\r\n\r\n");
+        let r = raw(
+            server(),
+            "GET /echo?a=x%20y&b=2 HTTP/1.1\r\nHost: x\r\n\r\n",
+        );
         assert!(r.starts_with("HTTP/1.1 200 OK\r\n"), "{r}");
         assert!(r.contains("Content-Length: "), "{r}");
         assert!(r.ends_with("GET Some(\"x y\") \"\"\n"), "{r}");
@@ -261,7 +317,10 @@ mod tests {
 
     #[test]
     fn reads_a_post_body() {
-        let r = raw(server(), "POST /echo HTTP/1.1\r\nContent-Length: 5\r\n\r\nhello");
+        let r = raw(
+            server(),
+            "POST /echo HTTP/1.1\r\nContent-Length: 5\r\n\r\nhello",
+        );
         assert!(r.ends_with("POST None \"hello\"\n"), "{r}");
     }
 
@@ -271,8 +330,14 @@ mod tests {
         assert!(raw(addr, "DELETE /echo HTTP/1.1\r\n\r\n").starts_with("HTTP/1.1 405"));
         assert!(raw(addr, "garbage\r\n\r\n").starts_with("HTTP/1.1 400"));
         assert!(raw(addr, "GET nowhere HTTP/1.1\r\n\r\n").starts_with("HTTP/1.1 400"));
-        assert!(raw(addr, "POST /echo HTTP/1.1\r\nContent-Length: 17\r\n\r\n").starts_with("HTTP/1.1 413"));
-        let huge = format!("GET /echo HTTP/1.1\r\nX: {}\r\n\r\n", "a".repeat(MAX_HEADER_BYTES));
+        assert!(
+            raw(addr, "POST /echo HTTP/1.1\r\nContent-Length: 17\r\n\r\n")
+                .starts_with("HTTP/1.1 413")
+        );
+        let huge = format!(
+            "GET /echo HTTP/1.1\r\nX: {}\r\n\r\n",
+            "a".repeat(MAX_HEADER_BYTES)
+        );
         assert!(raw(addr, &huge).starts_with("HTTP/1.1 431"));
         assert!(raw(addr, "GET /missing HTTP/1.1\r\n\r\n").starts_with("HTTP/1.1 404"));
     }
@@ -281,7 +346,10 @@ mod tests {
     fn head_has_no_body_and_streams_do_not_run() {
         let addr = server();
         let r = raw(addr, "HEAD /echo HTTP/1.1\r\n\r\n");
-        assert!(r.starts_with("HTTP/1.1 200") && r.ends_with("\r\n\r\n"), "{r}");
+        assert!(
+            r.starts_with("HTTP/1.1 200") && r.ends_with("\r\n\r\n"),
+            "{r}"
+        );
         let r = raw(addr, "HEAD /stream HTTP/1.1\r\n\r\n");
         assert!(!r.contains("one"), "{r}");
     }
@@ -289,7 +357,10 @@ mod tests {
     #[test]
     fn streams_write_until_they_are_done() {
         let r = raw(server(), "GET /stream HTTP/1.1\r\n\r\n");
-        assert!(r.contains("Content-Type: text/plain") && !r.contains("Content-Length"), "{r}");
+        assert!(
+            r.contains("Content-Type: text/plain") && !r.contains("Content-Length"),
+            "{r}"
+        );
         assert!(r.ends_with("\r\n\r\none\ntwo\n"), "{r}");
     }
 

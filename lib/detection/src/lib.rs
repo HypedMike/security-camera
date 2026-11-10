@@ -22,9 +22,19 @@ use std::fmt;
 #[derive(Clone, Copy)]
 pub enum Frame<'a> {
     /// A brightness plane, one byte per pixel (e.g. the Y plane of YCbCr).
-    Gray { data: &'a [u8], width: usize, height: usize, stride: usize },
+    Gray {
+        data: &'a [u8],
+        width: usize,
+        height: usize,
+        stride: usize,
+    },
     /// Packed 8-bit R, G, B, A.
-    Rgba { data: &'a [u8], width: usize, height: usize, stride: usize },
+    Rgba {
+        data: &'a [u8],
+        width: usize,
+        height: usize,
+        stride: usize,
+    },
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -213,7 +223,9 @@ impl Background {
     /// model) when the frame size or `width` changed.
     fn load(&mut self, frame: Frame) -> Result<(), Error> {
         let (fw, fh) = match frame {
-            Frame::Gray { width, height, .. } | Frame::Rgba { width, height, .. } => (width, height),
+            Frame::Gray { width, height, .. } | Frame::Rgba { width, height, .. } => {
+                (width, height)
+            }
         };
         let scale = ((fw + self.width.max(1) - 1) / self.width.max(1)).max(1);
         let (w, h) = (fw / scale, fh / scale);
@@ -317,7 +329,12 @@ impl Background {
     }
 
     fn learn_all(&mut self, alpha: f32) {
-        for ((&g, m), v) in self.gray.iter().zip(self.mean.iter_mut()).zip(self.vari.iter_mut()) {
+        for ((&g, m), v) in self
+            .gray
+            .iter()
+            .zip(self.mean.iter_mut())
+            .zip(self.vari.iter_mut())
+        {
             learn(m, v, g, alpha);
         }
     }
@@ -336,7 +353,10 @@ impl Background {
                 let (xl, xh) = (x.saturating_sub(1), (x + 1).min(w - 1));
                 let mut nb = 0;
                 for yy in lo..=hi {
-                    nb += self.changed[yy * w + xl..=yy * w + xh].iter().filter(|&&c| c).count();
+                    nb += self.changed[yy * w + xl..=yy * w + xh]
+                        .iter()
+                        .filter(|&&c| c)
+                        .count();
                 }
                 self.keep[i] = nb - 1 >= 2;
             }
@@ -401,4 +421,3 @@ fn learn(mean: &mut f32, vari: &mut f32, g: f32, alpha: f32) {
 fn luma(r: u32, g: u32, b: u32) -> u32 {
     (19595 * r + 38470 * g + 7471 * b + (1 << 15)) >> 16
 }
-

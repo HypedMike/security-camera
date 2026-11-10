@@ -12,8 +12,19 @@ fn rgba(w: usize, h: usize, f: impl Fn(usize, usize) -> [u8; 3]) -> Vec<u8> {
 
 #[test]
 fn shrink_averages_blocks() {
-    let data = rgba(640, 480, |x, _| if x % 2 == 0 { [200, 100, 0] } else { [100, 0, 0] });
-    let img = Image::Rgba { data: &data, width: 640, height: 480, stride: 640 * 4 };
+    let data = rgba(640, 480, |x, _| {
+        if x % 2 == 0 {
+            [200, 100, 0]
+        } else {
+            [100, 0, 0]
+        }
+    });
+    let img = Image::Rgba {
+        data: &data,
+        width: 640,
+        height: 480,
+        stride: 640 * 4,
+    };
     assert_eq!(shrink_dims(640, 480, 320), (2, 320, 240));
     let s = shrink(&img, 320);
     assert_eq!((s.width, s.height), (320, 240));
@@ -25,7 +36,12 @@ fn shrink_averages_blocks() {
 #[test]
 fn encodes_a_gif_with_every_frame() {
     let data = rgba(64, 48, |x, y| [(x * 4) as u8, (y * 5) as u8, 90]);
-    let img = Image::Rgba { data: &data, width: 64, height: 48, stride: 64 * 4 };
+    let img = Image::Rgba {
+        data: &data,
+        width: 64,
+        height: 48,
+        stride: 64 * 4,
+    };
     for dither in [false, true] {
         let gif = encode(&[img, img, img], 10, dither).unwrap();
         assert_eq!(&gif[..6], b"GIF89a");
@@ -38,7 +54,12 @@ fn encodes_a_gif_with_every_frame() {
 #[test]
 fn flat_colour_compresses() {
     let data = rgba(320, 240, |_, _| [0, 0, 0]);
-    let img = Image::Rgba { data: &data, width: 320, height: 240, stride: 320 * 4 };
+    let img = Image::Rgba {
+        data: &data,
+        width: 320,
+        height: 240,
+        stride: 320 * 4,
+    };
     let mut enc = Encoder::new(320, 240, 5, false);
     enc.add(&img);
     assert!(enc.finish().len() < 3000);

@@ -7,7 +7,6 @@
 //! with it (see [`Recorder::frame`]). Times are nanoseconds on any clock, as
 //! long as it is the same one for every call.
 
-
 /// What to do with a frame for one clip.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Action {
@@ -67,15 +66,23 @@ impl Recorder {
         let events = &mut self.events;
         self.clips.retain_mut(|clip| {
             if ts >= clip.end {
-                events.push(Event { clip: clip.id, action: Action::Finish });
+                events.push(Event {
+                    clip: clip.id,
+                    action: Action::Finish,
+                });
                 return false;
             }
             if ts >= clip.next {
-                events.push(Event { clip: clip.id, action: Action::Keep });
+                events.push(Event {
+                    clip: clip.id,
+                    action: Action::Keep,
+                });
                 // stay on the grid even if a frame came late; an interval
                 // that is not positive can't be here, start() fixed it
                 let behind = (ts - clip.next) / clip.interval + 1;
-                clip.next = clip.next.saturating_add(behind.saturating_mul(clip.interval));
+                clip.next = clip
+                    .next
+                    .saturating_add(behind.saturating_mul(clip.interval));
             }
             true
         });
@@ -95,7 +102,13 @@ mod tests {
     const SEC: i64 = 1_000_000_000;
 
     /// Feeds a 30 fps camera and counts the frames kept per clip.
-    fn run(r: &mut Recorder, from: i64, frames: i64, kept: &mut Vec<(u64, i64)>, done: &mut Vec<u64>) {
+    fn run(
+        r: &mut Recorder,
+        from: i64,
+        frames: i64,
+        kept: &mut Vec<(u64, i64)>,
+        done: &mut Vec<u64>,
+    ) {
         for i in 1..=frames {
             let ts = from + i * SEC / 30;
             for e in r.frame(ts) {
@@ -123,7 +136,13 @@ mod tests {
     fn slow_camera_still_finishes() {
         let mut r = Recorder::new();
         let id = r.start(0, 5 * SEC, 0);
-        assert_eq!(r.frame(10 * SEC), [Event { clip: id, action: Action::Finish }]);
+        assert_eq!(
+            r.frame(10 * SEC),
+            [Event {
+                clip: id,
+                action: Action::Finish
+            }]
+        );
         assert_eq!(r.active(), 0);
     }
 
@@ -132,7 +151,13 @@ mod tests {
         let mut r = Recorder::new();
         let id = r.start(0, 10 * SEC, SEC);
         // the frame at 3.5 s is the one for 1 s, the next is due at 4 s
-        assert_eq!(r.frame(SEC * 7 / 2), [Event { clip: id, action: Action::Keep }]);
+        assert_eq!(
+            r.frame(SEC * 7 / 2),
+            [Event {
+                clip: id,
+                action: Action::Keep
+            }]
+        );
         assert!(r.frame(SEC * 39 / 10).is_empty());
         assert_eq!(r.frame(4 * SEC).len(), 1);
     }
@@ -146,7 +171,11 @@ mod tests {
         let (mut kept, mut done) = (vec![], vec![]);
         run(&mut r, 0, 90, &mut kept, &mut done);
         for id in [a, b] {
-            assert_eq!(kept.iter().filter(|k| k.0 == id).count() + 1, 2, "clip {id}");
+            assert_eq!(
+                kept.iter().filter(|k| k.0 == id).count() + 1,
+                2,
+                "clip {id}"
+            );
         }
         assert_eq!(done, [a, b]);
     }

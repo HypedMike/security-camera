@@ -2,8 +2,8 @@
 //! app and the periodic jobs. [`run`] is the program.
 
 use std::io;
-use std::sync::atomic::Ordering;
 use std::sync::Arc;
+use std::sync::atomic::Ordering;
 use std::thread;
 use std::time::{Duration, Instant};
 
@@ -15,7 +15,9 @@ use crate::alarms::{self, AlarmBook, Alarms};
 use crate::clips::ClipRecorder;
 use crate::commands::{Commands, Paths, Shutdown, State};
 use crate::config::{self, Live};
-use crate::detector::{BackgroundDetector, Detector, FrameDifference, NAME_BACKGROUND, NAME_DIFFERENCE};
+use crate::detector::{
+    BackgroundDetector, Detector, FrameDifference, NAME_BACKGROUND, NAME_DIFFERENCE,
+};
 use crate::edit_config::{self, Settings};
 use crate::env;
 use crate::livegraph::{self, Graph};
@@ -54,8 +56,16 @@ pub fn run() -> Result<(), String> {
             &mut stdin.lock(),
             &mut io::stdout(),
             &[
-                env::Var { key: "TELEGRAM_BOT_TOKEN", prompt: "Telegram bot token from @BotFather", validate: None },
-                env::Var { key: "TELEGRAM_CHAT_ID", prompt: "Telegram chat id", validate: None },
+                env::Var {
+                    key: "TELEGRAM_BOT_TOKEN",
+                    prompt: "Telegram bot token from @BotFather",
+                    validate: None,
+                },
+                env::Var {
+                    key: "TELEGRAM_CHAT_ID",
+                    prompt: "Telegram chat id",
+                    validate: None,
+                },
             ],
         )?;
     }
@@ -64,7 +74,10 @@ pub fn run() -> Result<(), String> {
     let bot = Arc::new(Bot::new(&token, &chat_id).map_err(|e| format!("{e} (set them in .env)"))?);
     let chat: Arc<dyn Chat> = bot.clone();
 
-    let print = Printing { scores: env::bool("PRINT_DIFFERENCES"), alarms: env::bool("PRINT_ALARMS") };
+    let print = Printing {
+        scores: env::bool("PRINT_DIFFERENCES"),
+        alarms: env::bool("PRINT_ALARMS"),
+    };
     if env::bool("PRINT_TELEGRAM_MESSAGES") {
         bot.add_listener(|m| println!("Telegram message from {}: {}", m.from, m.text));
     }
@@ -85,7 +98,10 @@ pub fn run() -> Result<(), String> {
     // ALARM_THRESHOLD is the name the difference threshold had before there
     // were several detectors
     let background_threshold = env_threshold("BACKGROUND_THRESHOLD", config::BACKGROUND_THRESHOLD)?;
-    let difference_threshold = env_threshold("DIFFERENCE_THRESHOLD", env_threshold("ALARM_THRESHOLD", config::DIFFERENCE_THRESHOLD)?)?;
+    let difference_threshold = env_threshold(
+        "DIFFERENCE_THRESHOLD",
+        env_threshold("ALARM_THRESHOLD", config::DIFFERENCE_THRESHOLD)?,
+    )?;
     let detector_name = match env::get("DETECTOR") {
         d if d.is_empty() => config::DEFAULT_DETECTOR.to_owned(),
         d => d,
@@ -95,22 +111,38 @@ pub fn run() -> Result<(), String> {
     let monitor = Arc::new(Monitor::new(
         &device_id,
         &detector_name,
-        &[(NAME_BACKGROUND, background_threshold), (NAME_DIFFERENCE, difference_threshold)],
+        &[
+            (NAME_BACKGROUND, background_threshold),
+            (NAME_DIFFERENCE, difference_threshold),
+        ],
         config::ALARM_COOLDOWN,
     ));
     monitor.set_detection_frames(config::DETECTION_FRAMES);
 
     let names = [NAME_BACKGROUND, NAME_DIFFERENCE];
     if !names.contains(&detector_name.as_str()) {
-        return Err(format!("DETECTOR: unknown detector {detector_name:?}, use one of: {}", names.join(", ")));
+        return Err(format!(
+            "DETECTOR: unknown detector {detector_name:?}, use one of: {}",
+            names.join(", ")
+        ));
     }
     let detectors: Vec<Box<dyn Detector>> = {
         let m = monitor.clone();
-        vec![Box::new(BackgroundDetector::new()), Box::new(FrameDifference::new(move || m.detection_frames()))]
+        vec![
+            Box::new(BackgroundDetector::new()),
+            Box::new(FrameDifference::new(move || m.detection_frames())),
+        ]
     };
 
     // if the chosen camera can't be opened, the others are tried
-    let capture = Arc::new(my_video::open_any(&my_video::Config { width: 640, height: 480, warmup_frames: 30 }, &device_id)?);
+    let capture = Arc::new(my_video::open_any(
+        &my_video::Config {
+            width: 640,
+            height: 480,
+            warmup_frames: 30,
+        },
+        &device_id,
+    )?);
     {
         // a Weak: the camera is released when main drops it, to restart
         let weak = Arc::downgrade(&capture);
@@ -144,7 +176,8 @@ pub fn run() -> Result<(), String> {
 
     // the live graph page is only served when LIVE_STREAM_GRAPH is set; the
     // mini app plots the same scores
-    let graph = (env::bool("LIVE_STREAM_GRAPH") || !mini_app_url.is_empty()).then(|| Arc::new(Graph::new()));
+    let graph = (env::bool("LIVE_STREAM_GRAPH") || !mini_app_url.is_empty())
+        .then(|| Arc::new(Graph::new()));
     let mut app = None;
     if let Some(access) = mini_app_access {
         let server = miniapp::Server::new(miniapp::Options {
@@ -157,7 +190,10 @@ pub fn run() -> Result<(), String> {
         });
         match server.listen(config::MINI_APP_ADDR) {
             Ok(_) => {
-                println!("mini app listening on http://{}, public address {mini_app_url}", config::MINI_APP_ADDR);
+                println!(
+                    "mini app listening on http://{}, public address {mini_app_url}",
+                    config::MINI_APP_ADDR
+                );
                 app = Some(server);
             }
             Err(e) => {
@@ -169,8 +205,12 @@ pub fn run() -> Result<(), String> {
     }
     if env::bool("LIVE_STREAM_GRAPH") {
         let graph = graph.clone().expect("made for LIVE_STREAM_GRAPH");
-        livegraph::listen(graph, config::GRAPH_ADDR).map_err(|e| format!("live graph on {}: {e}", config::GRAPH_ADDR))?;
-        println!("live graph at http://localhost:{}", config::GRAPH_ADDR.rsplit(':').next().unwrap_or(""));
+        livegraph::listen(graph, config::GRAPH_ADDR)
+            .map_err(|e| format!("live graph on {}: {e}", config::GRAPH_ADDR))?;
+        println!(
+            "live graph at http://localhost:{}",
+            config::GRAPH_ADDR.rsplit(':').next().unwrap_or("")
+        );
     }
 
     let stream = Arc::new(Stream::new(config::STREAM_HISTORY));
@@ -179,7 +219,11 @@ pub fn run() -> Result<(), String> {
         // the camera frames for the mini app's video, only made while somebody watches
         let mut last: Option<Instant> = None;
         stream.add_handler(move |t| {
-            if !app.wanted() || last.is_some_and(|l| t.mono.duration_since(l) < Duration::from_secs(1) / config::MINI_APP_FPS) {
+            if !app.wanted()
+                || last.is_some_and(|l| {
+                    t.mono.duration_since(l) < Duration::from_secs(1) / config::MINI_APP_FPS
+                })
+            {
                 return;
             }
             last = Some(t.mono);
@@ -204,7 +248,8 @@ pub fn run() -> Result<(), String> {
     // defaults from the constants and the .env file. A bad file is reported and
     // ignored: it must not stop the camera
     let defaults = Settings::current(&monitor, &stream, &live);
-    if let Err(e) = edit_config::load_saved(config::SETTINGS_FILE, &monitor, &stream, &live, &names) {
+    if let Err(e) = edit_config::load_saved(config::SETTINGS_FILE, &monitor, &stream, &live, &names)
+    {
         let problem = format!("The saved settings were not loaded, using the defaults: {e}");
         eprintln!("{problem}");
         let chat = chat.clone();
@@ -217,7 +262,12 @@ pub fn run() -> Result<(), String> {
 
     // every alarm is told at once; its GIF is recorded in the background and
     // sent to whoever reacts to the message
-    let alarms = Arc::new(Alarms { chat: chat.clone(), book: AlarmBook::new(), clips: ClipRecorder::new(), gifs });
+    let alarms = Arc::new(Alarms {
+        chat: chat.clone(),
+        book: AlarmBook::new(),
+        clips: ClipRecorder::new(),
+        gifs,
+    });
     {
         let alarms = alarms.clone();
         bot.add_reaction_listener(move |r| alarms::on_reaction(&alarms, r));
@@ -232,7 +282,11 @@ pub fn run() -> Result<(), String> {
         defaults,
         alarms.clone(),
         &mini_app_url,
-        Paths { settings_file: config::SETTINGS_FILE.into(), update_script: config::UPDATE_SCRIPT.into(), update_timeout: config::UPDATE_TIMEOUT },
+        Paths {
+            settings_file: config::SETTINGS_FILE.into(),
+            update_script: config::UPDATE_SCRIPT.into(),
+            update_timeout: config::UPDATE_TIMEOUT,
+        },
         shutdown.clone(),
         state.clone(),
     )
@@ -247,7 +301,16 @@ pub fn run() -> Result<(), String> {
     // that set the alarm off
     {
         let (alarms, live) = (alarms.clone(), live.clone());
-        stream.add_handler(move |t| alarms.clips.frame(t.frame, t.mono, live.get().hd_gif_width));
+        stream.add_handler(move |t| {
+            let v = live.get();
+            alarms.clips.frame(
+                t.frame,
+                t.mono,
+                v.hd_gif_width,
+                config::ALARM_GIF_PRE,
+                Duration::from_secs(1) / v.alarm_gif_fps.max(1),
+            );
+        });
     }
 
     {
@@ -268,7 +331,14 @@ pub fn run() -> Result<(), String> {
         });
     }
 
-    stream.add_handler(detection_handler(monitor.clone(), graph.clone(), alarms.clone(), live.clone(), detectors, print));
+    stream.add_handler(detection_handler(
+        monitor.clone(),
+        graph.clone(),
+        alarms.clone(),
+        live.clone(),
+        detectors,
+        print,
+    ));
 
     {
         let (bot, stop) = (bot.clone(), shutdown.clone());
@@ -277,7 +347,11 @@ pub fn run() -> Result<(), String> {
 
     {
         let (chat, monitor, stop) = (chat.clone(), monitor.clone(), shutdown.clone());
-        thread::spawn(move || dailyreport::run(stop.flag(), config::DAILY_REPORT_HOUR, |now| send_daily_report(&*chat, &monitor, now, "", "", weather_coordinates(env::get))));
+        thread::spawn(move || {
+            dailyreport::run(stop.flag(), config::DAILY_REPORT_HOUR, |now| {
+                send_daily_report(&*chat, &monitor, now, "", "", weather_coordinates(env::get))
+            })
+        });
     }
 
     {
@@ -322,13 +396,17 @@ pub fn run() -> Result<(), String> {
     {
         let chat = chat.clone();
         thread::spawn(move || {
-            if let Err(e) = chat.send_message(&format!("Security camera is up and running on {}", hostname())) {
+            if let Err(e) = chat.send_message(&format!(
+                "Security camera is up and running on {}",
+                hostname()
+            )) {
                 eprintln!("{e}");
             }
             if !mini_app_problem.is_empty()
-                && let Err(e) = chat.send_message(&mini_app_problem) {
-                    eprintln!("{e}");
-                }
+                && let Err(e) = chat.send_message(&mini_app_problem)
+            {
+                eprintln!("{e}");
+            }
         });
     }
 
@@ -368,7 +446,9 @@ pub fn detection_handler(
     move |t| {
         let name = monitor.detector();
         if current.is_none_or(|i| detectors[i].name() != name) {
-            let Some(i) = detectors.iter().position(|d| d.name() == name) else { return };
+            let Some(i) = detectors.iter().position(|d| d.name() == name) else {
+                return;
+            };
             detectors[i].reset();
             current = Some(i);
         }
@@ -387,9 +467,21 @@ pub fn detection_handler(
         if !monitor.paused() && score >= threshold && cooldown_over(&monitor, t.wall) {
             monitor.alarm(t.wall);
             if print.alarms {
-                println!("{} alarm: {name} score {score:.4}", t.wall.format("%H:%M:%S%.3f"));
+                println!(
+                    "{} alarm: {name} score {score:.4}",
+                    t.wall.format("%H:%M:%S%.3f")
+                );
             }
-            alarms::start_alarm(&alarms, t.wall, t.mono, t.frame, &name, score, threshold, live.get());
+            alarms::start_alarm(
+                &alarms,
+                t.wall,
+                t.mono,
+                t.frame,
+                &name,
+                score,
+                threshold,
+                live.get(),
+            );
         }
         // after the alarm, so the clip it starts has the score of its first frame
         alarms.clips.score(t.mono, score);
@@ -401,14 +493,21 @@ pub fn detection_handler(
 
 /// Whether enough time went by since the last alarm for another one.
 fn cooldown_over(monitor: &Monitor, now: DateTime<Local>) -> bool {
-    monitor.last_alarm().is_none_or(|last| now - last > TimeDelta::from_std(monitor.cooldown()).unwrap_or(TimeDelta::MAX))
+    monitor.last_alarm().is_none_or(|last| {
+        now - last > TimeDelta::from_std(monitor.cooldown()).unwrap_or(TimeDelta::MAX)
+    })
 }
 
 /// Encodes a camera frame as a JPEG.
 pub fn encode_jpeg(frame: &Frame, quality: u8) -> Result<Vec<u8>, String> {
-    let (w, h) = (u16::try_from(frame.width).map_err(|e| e.to_string())?, u16::try_from(frame.height).map_err(|e| e.to_string())?);
+    let (w, h) = (
+        u16::try_from(frame.width).map_err(|e| e.to_string())?,
+        u16::try_from(frame.height).map_err(|e| e.to_string())?,
+    );
     let mut out = Vec::new();
-    Encoder::new(&mut out, quality).encode(&frame.pixels, w, h, ColorType::Rgba).map_err(|e| e.to_string())?;
+    Encoder::new(&mut out, quality)
+        .encode(&frame.pixels, w, h, ColorType::Rgba)
+        .map_err(|e| e.to_string())?;
     Ok(out)
 }
 
@@ -418,7 +517,14 @@ pub fn encode_jpeg(frame: &Frame, quality: u8) -> Result<Vec<u8>, String> {
 /// where the forecast comes from, "" for Open-Meteo. The events of the day
 /// come from the calendar API at `calendar_api`, "" for the parish website;
 /// they are left out if they can't be fetched.
-pub fn send_daily_report(chat: &dyn Chat, monitor: &Monitor, now: DateTime<Local>, api: &str, calendar_api: &str, (lat, lon): (f64, f64)) {
+pub fn send_daily_report(
+    chat: &dyn Chat,
+    monitor: &Monitor,
+    now: DateTime<Local>,
+    api: &str,
+    calendar_api: &str,
+    (lat, lon): (f64, f64),
+) {
     let weather = match dailyreport::fetch_weather(api, lat, lon, Duration::from_secs(15)) {
         Ok(w) => Some(w),
         Err(e) => {
@@ -426,13 +532,23 @@ pub fn send_daily_report(chat: &dyn Chat, monitor: &Monitor, now: DateTime<Local
             None
         }
     };
-    let events = dailyreport::fetch_events(calendar_api, now.date_naive(), Duration::from_secs(15)).unwrap_or_else(|e| {
-        eprintln!("daily report: {e}");
-        Vec::new()
-    });
-    let yesterday = now.date_naive().checked_sub_days(Days::new(1)).unwrap_or(now.date_naive());
+    let events = dailyreport::fetch_events(calendar_api, now.date_naive(), Duration::from_secs(15))
+        .unwrap_or_else(|e| {
+            eprintln!("daily report: {e}");
+            Vec::new()
+        });
+    let yesterday = now
+        .date_naive()
+        .checked_sub_days(Days::new(1))
+        .unwrap_or(now.date_naive());
     let night_start = dailyreport::at_hour(yesterday, config::NIGHT_START_HOUR);
-    let msg = dailyreport::compose(now, &monitor.alarms_since(night_start), monitor.paused(), weather, &events);
+    let msg = dailyreport::compose(
+        now,
+        &monitor.alarms_since(night_start),
+        monitor.paused(),
+        weather,
+        &events,
+    );
     if let Err(e) = chat.send_message(&msg) {
         eprintln!("daily report: {e}");
     }
@@ -450,7 +566,9 @@ pub fn weather_coordinates(get: impl Fn(&str) -> String) -> (f64, f64) {
     match (lat.trim().parse::<f64>(), lon.trim().parse::<f64>()) {
         (Ok(lat), Ok(lon)) if lat.abs() <= 90.0 && lon.abs() <= 180.0 => (lat, lon),
         _ => {
-            eprintln!("daily report: WEATHER_LATITUDE/WEATHER_LONGITUDE are not valid coordinates, using Lucca");
+            eprintln!(
+                "daily report: WEATHER_LATITUDE/WEATHER_LONGITUDE are not valid coordinates, using Lucca"
+            );
             lucca
         }
     }
@@ -480,7 +598,15 @@ fn pick_camera(refetch: bool) -> Result<String, String> {
         &devices,
         &env::get("CAMERA_ID"),
         refetch,
-        |labels| env::choose(io::stdin(), &mut io::stdout(), "Several cameras found:", labels, config::CAMERA_CHOICE_TIMEOUT),
+        |labels| {
+            env::choose(
+                io::stdin(),
+                &mut io::stdout(),
+                "Several cameras found:",
+                labels,
+                config::CAMERA_CHOICE_TIMEOUT,
+            )
+        },
         |label| {
             // the label is saved, not the id: the driver gives a new random id to
             // every camera at every start, so a saved id never matched again
@@ -528,10 +654,18 @@ mod tests {
     use std::sync::Mutex;
 
     fn dev(id: &str, label: &str) -> Device {
-        Device { id: id.into(), label: label.into() }
+        Device {
+            id: id.into(),
+            label: label.into(),
+        }
     }
 
-    fn pick(devices: &[Device], saved: &str, refetch: bool, answer: usize) -> (Result<String, String>, Option<String>, bool) {
+    fn pick(
+        devices: &[Device],
+        saved: &str,
+        refetch: bool,
+        answer: usize,
+    ) -> (Result<String, String>, Option<String>, bool) {
         let asked = std::cell::Cell::new(false);
         let saved_label = std::cell::RefCell::new(None);
         let r = pick_from(
@@ -558,23 +692,50 @@ mod tests {
 
     #[test]
     fn a_single_camera_is_not_asked_about() {
-        assert_eq!(pick(&[dev("7", "Cam")], "other", false, 0), (Ok("7".into()), None, false));
+        assert_eq!(
+            pick(&[dev("7", "Cam")], "other", false, 0),
+            (Ok("7".into()), None, false)
+        );
     }
 
     #[test]
     fn the_saved_camera_is_used_without_asking() {
         let devs = [dev("1", "A"), dev("2", "B")];
-        assert_eq!(pick(&devs, "B", false, 0), (Ok("2".into()), None, false), "by label");
-        assert_eq!(pick(&devs, "1", false, 1), (Ok("1".into()), None, false), "by an older id");
+        assert_eq!(
+            pick(&devs, "B", false, 0),
+            (Ok("2".into()), None, false),
+            "by label"
+        );
+        assert_eq!(
+            pick(&devs, "1", false, 1),
+            (Ok("1".into()), None, false),
+            "by an older id"
+        );
     }
 
     #[test]
     fn the_camera_is_asked_and_its_label_saved() {
         let devs = [dev("1", "A"), dev("2", "B")];
-        assert_eq!(pick(&devs, "", false, 1), (Ok("2".into()), Some("B".into()), true), "nothing saved yet");
-        assert_eq!(pick(&devs, "gone", false, 0), (Ok("1".into()), Some("A".into()), true), "the saved one is gone");
-        assert_eq!(pick(&devs, "B", true, 0), (Ok("1".into()), Some("A".into()), true), "-fetch-camera");
-        assert_eq!(pick(&devs, "", false, 99).0, Ok("2".into()), "an answer out of range is the last one");
+        assert_eq!(
+            pick(&devs, "", false, 1),
+            (Ok("2".into()), Some("B".into()), true),
+            "nothing saved yet"
+        );
+        assert_eq!(
+            pick(&devs, "gone", false, 0),
+            (Ok("1".into()), Some("A".into()), true),
+            "the saved one is gone"
+        );
+        assert_eq!(
+            pick(&devs, "B", true, 0),
+            (Ok("1".into()), Some("A".into()), true),
+            "-fetch-camera"
+        );
+        assert_eq!(
+            pick(&devs, "", false, 99).0,
+            Ok("2".into()),
+            "an answer out of range is the last one"
+        );
     }
 
     #[test]
@@ -591,7 +752,10 @@ mod tests {
         assert_eq!(threshold_from("K", " 1 ", 0.5), Ok(1.0));
         for bad in ["abc", "-0.1", "1.5", "NaN", "inf"] {
             let e = threshold_from("BACKGROUND_THRESHOLD", bad, 0.5).unwrap_err();
-            assert!(e.contains("BACKGROUND_THRESHOLD") && e.contains("between 0 and 1"), "{bad}: {e}");
+            assert!(
+                e.contains("BACKGROUND_THRESHOLD") && e.contains("between 0 and 1"),
+                "{bad}: {e}"
+            );
         }
     }
 
@@ -608,20 +772,49 @@ mod tests {
         assert_eq!(with("", ""), lucca);
         assert_eq!(with("45.46", "9.19"), (45.46, 9.19));
         assert_eq!(with("-33.9", "-151.2"), (-33.9, -151.2));
-        for (lat, lon) in [("45.46", ""), ("", "9.19"), ("abc", "9"), ("91", "0"), ("0", "181")] {
+        for (lat, lon) in [
+            ("45.46", ""),
+            ("", "9.19"),
+            ("abc", "9"),
+            ("91", "0"),
+            ("0", "181"),
+        ] {
             assert_eq!(with(lat, lon), lucca, "{lat:?} {lon:?}");
         }
     }
 
     #[test]
     fn frames_are_encoded_as_jpeg() {
-        let frame = Frame { width: 16, height: 8, pixels: [200, 100, 50, 255].repeat(128) };
+        let frame = Frame {
+            width: 16,
+            height: 8,
+            pixels: [200, 100, 50, 255].repeat(128),
+        };
         let jpeg = encode_jpeg(&frame, 85).unwrap();
         assert_eq!(&jpeg[..2], [0xff, 0xd8]);
         assert_eq!(&jpeg[jpeg.len() - 2..], [0xff, 0xd9]);
-        assert!(encode_jpeg(&Frame::default(), 85).is_err(), "an empty frame");
-        let smaller = encode_jpeg(&Frame { width: 64, height: 64, pixels: (0..64 * 64 * 4).map(|i| (i * 7 % 251) as u8).collect() }, 10).unwrap();
-        let bigger = encode_jpeg(&Frame { width: 64, height: 64, pixels: (0..64 * 64 * 4).map(|i| (i * 7 % 251) as u8).collect() }, 95).unwrap();
+        assert!(
+            encode_jpeg(&Frame::default(), 85).is_err(),
+            "an empty frame"
+        );
+        let smaller = encode_jpeg(
+            &Frame {
+                width: 64,
+                height: 64,
+                pixels: (0..64 * 64 * 4).map(|i| (i * 7 % 251) as u8).collect(),
+            },
+            10,
+        )
+        .unwrap();
+        let bigger = encode_jpeg(
+            &Frame {
+                width: 64,
+                height: 64,
+                pixels: (0..64 * 64 * 4).map(|i| (i * 7 % 251) as u8).collect(),
+            },
+            95,
+        )
+        .unwrap();
         assert!(smaller.len() < bigger.len(), "quality counts");
     }
 
@@ -631,7 +824,10 @@ mod tests {
         let now = Local::now();
         assert!(cooldown_over(&m, now), "no alarm yet");
         m.alarm(now);
-        assert!(!cooldown_over(&m, now + TimeDelta::seconds(5)), "exactly the cooldown is not enough");
+        assert!(
+            !cooldown_over(&m, now + TimeDelta::seconds(5)),
+            "exactly the cooldown is not enough"
+        );
         assert!(cooldown_over(&m, now + TimeDelta::milliseconds(5001)));
         m.set_cooldown(Duration::ZERO);
         assert!(cooldown_over(&m, now + TimeDelta::milliseconds(1)));
@@ -661,25 +857,64 @@ mod tests {
             0,
             Arc::new(|r: &Request| {
                 assert_eq!(r.param("date"), Some("2026-11-03"));
-                Response::new(200, "application/json", r#"{"events":[{"title":"Messa","eventTime":"18:30","location":"Chiesa"}]}"#)
+                Response::new(
+                    200,
+                    "application/json",
+                    r#"{"events":[{"title":"Messa","eventTime":"18:30","location":"Chiesa"}]}"#,
+                )
             }),
         )
         .unwrap();
-        send_daily_report(&*chat, &m, now, &format!("http://{api}"), &format!("http://{calendar}"), (45.5, 9.2));
-        let Sent::Text(text) = rx.recv_timeout(Duration::from_secs(5)).unwrap() else { panic!("not a text") };
-        assert!(text.starts_with("i'm alive, tonight there has been 1 alarm, at 03:15 (alarms are paused"), "{text}");
-        assert!(text.contains("it's gonna be a great day (10°C to 20°C)"), "{text}");
-        assert!(text.ends_with("Today in the calendar:\n- 18:30 Messa (Chiesa)"), "{text}");
-        assert_eq!(*seen.lock().unwrap(), Some((Some("45.5".into()), Some("9.2".into()))));
+        send_daily_report(
+            &*chat,
+            &m,
+            now,
+            &format!("http://{api}"),
+            &format!("http://{calendar}"),
+            (45.5, 9.2),
+        );
+        let Sent::Text(text) = rx.recv_timeout(Duration::from_secs(5)).unwrap() else {
+            panic!("not a text")
+        };
+        assert!(
+            text.starts_with(
+                "i'm alive, tonight there has been 1 alarm, at 03:15 (alarms are paused"
+            ),
+            "{text}"
+        );
+        assert!(
+            text.contains("it's gonna be a great day (10°C to 20°C)"),
+            "{text}"
+        );
+        assert!(
+            text.ends_with("Today in the calendar:\n- 18:30 Messa (Chiesa)"),
+            "{text}"
+        );
+        assert_eq!(
+            *seen.lock().unwrap(),
+            Some((Some("45.5".into()), Some("9.2".into())))
+        );
     }
 
     #[test]
     fn the_daily_report_goes_out_without_the_weather_and_the_events() {
         let (chat, rx) = fake_chat();
         let m = Monitor::new("", NAME_BACKGROUND, &[], Duration::from_secs(5));
-        send_daily_report(&*chat, &m, Local::now(), "http://127.0.0.1:1", "http://127.0.0.1:1", (0.0, 0.0));
-        let Sent::Text(text) = rx.recv_timeout(Duration::from_secs(5)).unwrap() else { panic!("not a text") };
-        assert_eq!(text, "i'm alive, tonight there have been no alarms or movement.");
+        send_daily_report(
+            &*chat,
+            &m,
+            Local::now(),
+            "http://127.0.0.1:1",
+            "http://127.0.0.1:1",
+            (0.0, 0.0),
+        );
+        let Sent::Text(text) = rx.recv_timeout(Duration::from_secs(5)).unwrap() else {
+            panic!("not a text")
+        };
+        assert_eq!(
+            text,
+            "i'm alive, tonight there have been no alarms or movement."
+        );
     }
 
     // ---- the whole path from the camera to the chat, with a scripted camera ----
@@ -708,7 +943,11 @@ mod tests {
                 pixels.extend_from_slice(&[v, v, v, 255]);
             }
         }
-        Frame { width: W as u32, height: H as u32, pixels }
+        Frame {
+            width: W as u32,
+            height: H as u32,
+            pixels,
+        }
     }
 
     /// A camera that plays `frames`, one every `delay`, and then fails.
@@ -739,15 +978,27 @@ mod tests {
         let monitor = Arc::new(Monitor::new(
             "",
             detector,
-            &[(NAME_BACKGROUND, config::BACKGROUND_THRESHOLD), (NAME_DIFFERENCE, config::DIFFERENCE_THRESHOLD)],
+            &[
+                (NAME_BACKGROUND, config::BACKGROUND_THRESHOLD),
+                (NAME_DIFFERENCE, config::DIFFERENCE_THRESHOLD),
+            ],
             config::ALARM_COOLDOWN,
         ));
         monitor.set_detection_frames(2);
         let stream = Stream::new(config::STREAM_HISTORY);
         let live = Arc::new(Live::new());
-        live.set(config::Values { alarm_gif_span: Duration::from_millis(300), alarm_gif_fps: 10, ..live.get() });
+        live.set(config::Values {
+            alarm_gif_span: Duration::from_millis(300),
+            alarm_gif_fps: 10,
+            ..live.get()
+        });
         let store = Arc::new(Store::new(temp_dir("pipeline"), 1 << 24).unwrap());
-        let alarms = Arc::new(Alarms { chat: chat as Arc<FakeChat>, book: AlarmBook::new(), clips: ClipRecorder::new(), gifs: Some(store) });
+        let alarms = Arc::new(Alarms {
+            chat: chat as Arc<FakeChat>,
+            book: AlarmBook::new(),
+            clips: ClipRecorder::new(),
+            gifs: Some(store),
+        });
 
         {
             let monitor = monitor.clone();
@@ -755,12 +1006,36 @@ mod tests {
         }
         {
             let (alarms, live) = (alarms.clone(), live.clone());
-            stream.add_handler(move |t| alarms.clips.frame(t.frame, t.mono, live.get().hd_gif_width));
+            stream.add_handler(move |t| {
+                alarms.clips.frame(
+                    t.frame,
+                    t.mono,
+                    live.get().hd_gif_width,
+                    Duration::ZERO,
+                    Duration::ZERO,
+                )
+            });
         }
         let m = monitor.clone();
-        let detectors: Vec<Box<dyn Detector>> = vec![Box::new(BackgroundDetector::new()), Box::new(FrameDifference::new(move || m.detection_frames()))];
-        stream.add_handler(detection_handler(monitor.clone(), None, alarms.clone(), live, detectors, Printing::default()));
-        Rig { stream, monitor, alarms, rx, jumping: detector == NAME_DIFFERENCE }
+        let detectors: Vec<Box<dyn Detector>> = vec![
+            Box::new(BackgroundDetector::new()),
+            Box::new(FrameDifference::new(move || m.detection_frames())),
+        ];
+        stream.add_handler(detection_handler(
+            monitor.clone(),
+            None,
+            alarms.clone(),
+            live,
+            detectors,
+            Printing::default(),
+        ));
+        Rig {
+            stream,
+            monitor,
+            alarms,
+            rx,
+            jumping: detector == NAME_DIFFERENCE,
+        }
     }
 
     impl Rig {
@@ -769,10 +1044,22 @@ mod tests {
             let mut frames: VecDeque<Frame> = (0..still).map(|_| scene(None)).collect();
             // the frame difference only sees what changes from one frame to the next: for
             // it the block jumps from one side to the other, which is plenty of movement
-            let x = |i: usize| if self.jumping { 10 + (i % 2) * 100 } else { 10 + i * 2 };
+            let x = |i: usize| {
+                if self.jumping {
+                    10 + (i % 2) * 100
+                } else {
+                    10 + i * 2
+                }
+            };
             frames.extend((0..moving).map(|i| scene(Some(x(i)))));
-            let mut camera = Scripted { frames, delay: Duration::from_millis(10) };
-            let err = self.stream.run(&mut camera, &std::sync::atomic::AtomicBool::new(false)).unwrap_err();
+            let mut camera = Scripted {
+                frames,
+                delay: Duration::from_millis(10),
+            };
+            let err = self
+                .stream
+                .run(&mut camera, &std::sync::atomic::AtomicBool::new(false))
+                .unwrap_err();
             assert_eq!(err, "the script is over");
         }
 
@@ -791,23 +1078,52 @@ mod tests {
         let r = rig(detector);
         r.play(still, moving);
         let texts = r.texts();
-        assert_eq!(texts.len(), 1, "one alarm, the cooldown holds back the rest: {texts:?}");
-        assert!(texts[0].starts_with("Alarm: motion detected at ") && texts[0].contains(&format!("({detector} score ")), "{}", texts[0]);
-        assert!(r.monitor.report().contains("alarms sent: 1"), "{}", r.monitor.report());
+        assert_eq!(
+            texts.len(),
+            1,
+            "one alarm, the cooldown holds back the rest: {texts:?}"
+        );
+        assert!(
+            texts[0].starts_with("Alarm: motion detected at ")
+                && texts[0].contains(&format!("({detector} score ")),
+            "{}",
+            texts[0]
+        );
+        assert!(
+            r.monitor.report().contains("alarms sent: 1"),
+            "{}",
+            r.monitor.report()
+        );
 
         // the clip was recorded while the camera went on, and is saved under the code in the message
-        let code = texts[0].split("/hd ").nth(1).unwrap().trim_end_matches(')').to_owned();
+        let code = texts[0]
+            .split("/hd ")
+            .nth(1)
+            .unwrap()
+            .trim_end_matches(')')
+            .to_owned();
         let store = r.alarms.gifs.as_ref().unwrap();
         let deadline = Instant::now() + Duration::from_secs(10);
         while store.get(&code).is_err() {
-            assert!(Instant::now() < deadline, "the GIF was never saved: {}", r.alarms.book.report(1));
+            assert!(
+                Instant::now() < deadline,
+                "the GIF was never saved: {}",
+                r.alarms.book.report(1)
+            );
             thread::sleep(Duration::from_millis(10));
         }
         let data = store.get(&code).unwrap();
         assert!(data.starts_with(b"GIF89a") && data.len() > 100);
 
         // a reaction to the alarm message gets the GIF as a reply to it
-        alarms::on_reaction(&r.alarms, &crate::telegram::Reaction { message_id: 101, emoji: "👍".into(), from: "bob".into() });
+        alarms::on_reaction(
+            &r.alarms,
+            &crate::telegram::Reaction {
+                message_id: 101,
+                emoji: "👍".into(),
+                from: "bob".into(),
+            },
+        );
         let deadline = Instant::now() + Duration::from_secs(10);
         loop {
             match r.rx.recv_timeout(Duration::from_millis(100)) {
@@ -836,7 +1152,10 @@ mod tests {
             let r = rig(detector);
             r.play(60, 0);
             assert!(r.texts().is_empty(), "{detector}");
-            assert!(r.monitor.report().contains("alarms sent: 0") && r.monitor.report().contains("frames: 60"));
+            assert!(
+                r.monitor.report().contains("alarms sent: 0")
+                    && r.monitor.report().contains("frames: 60")
+            );
         }
     }
 

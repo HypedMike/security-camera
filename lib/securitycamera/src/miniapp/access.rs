@@ -51,7 +51,11 @@ impl Access {
         Access::with_clock(chat_id, members, Arc::new(Instant::now))
     }
 
-    pub(crate) fn with_clock(chat_id: &str, members: Option<Arc<dyn Members>>, now: Clock) -> Result<Access, String> {
+    pub(crate) fn with_clock(
+        chat_id: &str,
+        members: Option<Arc<dyn Members>>,
+        now: Clock,
+    ) -> Result<Access, String> {
         let id: i64 = match chat_id.trim().parse() {
             Ok(id) if id != 0 => id,
             _ => return Err("TELEGRAM_CHAT_ID is not a chat id".into()),
@@ -59,7 +63,12 @@ impl Access {
         if id < 0 && members.is_none() {
             return Err("a group chat needs a way to check who is in it".into());
         }
-        Ok(Access { owner: if id > 0 { id } else { 0 }, members, now, cache: Mutex::new(HashMap::new()) })
+        Ok(Access {
+            owner: if id > 0 { id } else { 0 },
+            members,
+            now,
+            cache: Mutex::new(HashMap::new()),
+        })
     }
 
     /// Whether the Telegram user may open the mini app.
@@ -69,18 +78,31 @@ impl Access {
         }
         let now = (self.now)();
         if let Some(v) = lock(&self.cache).get(&user_id)
-            && now < v.until {
-                return v.ok;
-            }
-        let members = self.members.as_ref().expect("a group has a way to check it");
+            && now < v.until
+        {
+            return v.ok;
+        }
+        let members = self
+            .members
+            .as_ref()
+            .expect("a group has a way to check it");
         let verdict = match members.is_member(user_id) {
             // closed: when in doubt, nobody gets the camera
             Err(e) => {
                 eprintln!("mini app: can't check whether user {user_id} is in the group: {e}");
-                Verdict { ok: false, until: now + ERROR_FOR }
+                Verdict {
+                    ok: false,
+                    until: now + ERROR_FOR,
+                }
             }
-            Ok(true) => Verdict { ok: true, until: now + YES_FOR },
-            Ok(false) => Verdict { ok: false, until: now + NO_FOR },
+            Ok(true) => Verdict {
+                ok: true,
+                until: now + YES_FOR,
+            },
+            Ok(false) => Verdict {
+                ok: false,
+                until: now + NO_FOR,
+            },
         };
         let ok = verdict.ok;
         let mut cache = lock(&self.cache);
@@ -109,7 +131,13 @@ mod tests {
             if let Some(e) = &*self.error.lock().unwrap() {
                 return Err(e.clone());
             }
-            Ok(self.members.lock().unwrap().get(&id).copied().unwrap_or(false))
+            Ok(self
+                .members
+                .lock()
+                .unwrap()
+                .get(&id)
+                .copied()
+                .unwrap_or(false))
         }
     }
 
@@ -125,7 +153,12 @@ mod tests {
     fn group(m: &Arc<Fake>) -> (Access, Arc<Mutex<Instant>>) {
         let clock = Arc::new(Mutex::new(Instant::now()));
         let c = clock.clone();
-        let a = Access::with_clock("-100123", Some(m.clone()), Arc::new(move || *c.lock().unwrap())).unwrap();
+        let a = Access::with_clock(
+            "-100123",
+            Some(m.clone()),
+            Arc::new(move || *c.lock().unwrap()),
+        )
+        .unwrap();
         (a, clock)
     }
 
@@ -146,12 +179,19 @@ mod tests {
         assert!(a.allowed(7) && !a.allowed(8), "members in, others out");
         a.allowed(7);
         a.allowed(8);
-        assert_eq!(m.calls.load(Ordering::SeqCst), 2, "answers are not remembered");
+        assert_eq!(
+            m.calls.load(Ordering::SeqCst),
+            2,
+            "answers are not remembered"
+        );
 
         // a no is forgotten soon: somebody who just joined gets in
         m.members.lock().unwrap().insert(8, true);
         advance(&clock, NO_FOR + Duration::from_secs(1));
-        assert!(a.allowed(8), "a new member is still refused after the no expired");
+        assert!(
+            a.allowed(8),
+            "a new member is still refused after the no expired"
+        );
         // a yes lasts longer, then somebody who left is out
         m.members.lock().unwrap().remove(&7);
         assert!(a.allowed(7), "a yes was not kept");
@@ -166,10 +206,17 @@ mod tests {
         let (a, clock) = group(&m);
         assert!(!a.allowed(7), "let in with the check failing");
         assert!(!a.allowed(7));
-        assert_eq!(m.calls.load(Ordering::SeqCst), 1, "the failure is remembered for a moment");
+        assert_eq!(
+            m.calls.load(Ordering::SeqCst),
+            1,
+            "the failure is remembered for a moment"
+        );
         *m.error.lock().unwrap() = None;
         advance(&clock, ERROR_FOR + Duration::from_secs(1));
-        assert!(a.allowed(7), "still refused after the failure was forgotten");
+        assert!(
+            a.allowed(7),
+            "still refused after the failure was forgotten"
+        );
     }
 
     #[test]
@@ -189,6 +236,9 @@ mod tests {
         for id in ["", "abc", "0"] {
             assert!(Access::new(id, Some(fake(&[]))).is_err(), "{id:?}");
         }
-        assert!(Access::new("-100123", None).is_err(), "a group with no way to check it");
+        assert!(
+            Access::new("-100123", None).is_err(),
+            "a group with no way to check it"
+        );
     }
 }

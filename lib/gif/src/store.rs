@@ -42,7 +42,10 @@ impl From<io::Error> for Error {
 /// Whether `code` looks like what the program generates: six lowercase hex
 /// digits. It also keeps a user supplied code from naming any other file.
 pub fn valid_code(code: &str) -> bool {
-    code.len() == 6 && code.bytes().all(|c| c.is_ascii_digit() || (b'a'..=b'f').contains(&c))
+    code.len() == 6
+        && code
+            .bytes()
+            .all(|c| c.is_ascii_digit() || (b'a'..=b'f').contains(&c))
 }
 
 pub struct Store {
@@ -57,7 +60,11 @@ impl Store {
     pub fn new(root: impl Into<PathBuf>, max: u64) -> io::Result<Store> {
         let root = root.into();
         fs::create_dir_all(&root)?;
-        Ok(Store { root, max, lock: Mutex::new(()) })
+        Ok(Store {
+            root,
+            max,
+            lock: Mutex::new(()),
+        })
     }
 
     fn path(&self, code: &str) -> PathBuf {
@@ -103,7 +110,9 @@ impl Store {
             if meta.is_dir() {
                 continue;
             }
-            let Ok(modified) = meta.modified() else { continue };
+            let Ok(modified) = meta.modified() else {
+                continue;
+            };
             total += meta.len();
             files.push((modified, name, meta.len()));
         }
@@ -126,7 +135,11 @@ impl Store {
 /// reader never sees half a GIF.
 fn write_atomic(dir: &Path, path: &Path, data: &[u8]) -> io::Result<()> {
     static COUNTER: AtomicU64 = AtomicU64::new(0);
-    let tmp = dir.join(format!(".tmp-{}-{}", std::process::id(), COUNTER.fetch_add(1, Ordering::Relaxed)));
+    let tmp = dir.join(format!(
+        ".tmp-{}-{}",
+        std::process::id(),
+        COUNTER.fetch_add(1, Ordering::Relaxed)
+    ));
     let result = fs::write(&tmp, data).and_then(|()| fs::rename(&tmp, path));
     if result.is_err() {
         let _ = fs::remove_file(&tmp);

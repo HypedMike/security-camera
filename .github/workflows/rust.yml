@@ -1,4 +1,4 @@
-# Runs every test of the Rust workspace. It builds and publishes nothing. The tests need
+# Checks the formatting (cargo fmt) and runs every test of the Rust workspace. It builds and publishes nothing. The tests need
 # neither a webcam nor internet: they use a fake camera, a fake Telegram and a
 # fake weather service on local ports.
 name: Rust
@@ -32,3 +32,15 @@ jobs:
         with:
           workspaces: lib
       - run: cargo test --release --workspace
+
+  fmt:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: lib
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+      - run: cargo fmt --all --check
