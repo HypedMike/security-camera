@@ -38,8 +38,12 @@ pub fn parse_url(raw: &str) -> Result<String, String> {
         return Ok(String::new());
     }
     match url::Url::parse(raw) {
-        Ok(u) if u.scheme() == "https" && u.host_str().is_some_and(|h| !h.is_empty()) => Ok(raw.to_owned()),
-        _ => Err(format!("{raw:?} is not an https address (Telegram only opens https mini apps)")),
+        Ok(u) if u.scheme() == "https" && u.host_str().is_some_and(|h| !h.is_empty()) => {
+            Ok(raw.to_owned())
+        }
+        _ => Err(format!(
+            "{raw:?} is not an https address (Telegram only opens https mini apps)"
+        )),
     }
 }
 
@@ -78,7 +82,11 @@ pub struct Server {
 
 impl Server {
     pub fn new(opts: Options) -> Arc<Server> {
-        Arc::new(Server { opts, viewers: AtomicUsize::new(0), subs: Mutex::new(Vec::new()) })
+        Arc::new(Server {
+            opts,
+            viewers: AtomicUsize::new(0),
+            subs: Mutex::new(Vec::new()),
+        })
     }
 
     /// Whether anybody is watching, so the camera loop can skip encoding
@@ -108,7 +116,9 @@ impl Server {
         match req.path.as_str() {
             "/api/check" => self.guard(req, |_| Response::no_content()),
             "/stream" => self.guard(req, |me| me.stream()),
-            "/events" if self.opts.events.is_some() => self.guard(req, |me| me.opts.events.as_ref().expect("checked").events()),
+            "/events" if self.opts.events.is_some() => {
+                self.guard(req, |me| me.opts.events.as_ref().expect("checked").events())
+            }
             _ => self.file(&req.path),
         }
     }
@@ -118,13 +128,18 @@ impl Server {
         let name = path.trim_start_matches('/');
         let name = if name.is_empty() { "index.html" } else { name };
         match DIST.get_file(name).filter(|_| !name.contains("..")) {
-            Some(f) => Response::new(200, content_type(name), f.contents()).header("Cache-Control", "no-cache"),
+            Some(f) => Response::new(200, content_type(name), f.contents())
+                .header("Cache-Control", "no-cache"),
             None => Response::text(404, "not found"),
         }
     }
 
     /// Lets only the allowed Telegram users through.
-    fn guard(self: &Arc<Self>, req: &Request, next: impl FnOnce(&Arc<Self>) -> Response) -> Response {
+    fn guard(
+        self: &Arc<Self>,
+        req: &Request,
+        next: impl FnOnce(&Arc<Self>) -> Response,
+    ) -> Response {
         let auth = req.param("auth").unwrap_or("");
         match validate(auth, &self.opts.token, Local::now(), self.opts.max_age) {
             Ok(id) if (self.opts.allowed)(id) => next(self).header("Cache-Control", "no-store"),
@@ -144,7 +159,10 @@ impl Server {
         let (me, max_stream) = (self.clone(), self.opts.max_stream);
         Response::stream("multipart/x-mixed-replace; boundary=frame", move |conn| {
             // however it ends, the viewer stops counting
-            let _leave = Leave { server: &me, slot: &slot };
+            let _leave = Leave {
+                server: &me,
+                slot: &slot,
+            };
             conn.set_write_timeout(Some(STREAM_WRITE_TIMEOUT))?;
             send_frames(conn, &slot, Instant::now() + max_stream)
         })
@@ -166,19 +184,29 @@ impl Drop for Leave<'_> {
 
 fn send_frames(conn: &mut TcpStream, slot: &Slot, end: Instant) -> io::Result<()> {
     loop {
-        let Some(left) = end.checked_duration_since(Instant::now()) else { return Ok(()) };
+        let Some(left) = end.checked_duration_since(Instant::now()) else {
+            return Ok(());
+        };
         let frame = {
             let mut f = lock(&slot.frame);
             if f.is_none() {
                 // wakes up now and then to see whether the viewer left
-                f = slot.ready.wait_timeout(f, left.min(Duration::from_secs(1))).unwrap_or_else(|e| e.into_inner()).0;
+                f = slot
+                    .ready
+                    .wait_timeout(f, left.min(Duration::from_secs(1)))
+                    .unwrap_or_else(|e| e.into_inner())
+                    .0;
             }
             f.take()
         };
         match frame {
             Some(jpeg) => {
                 // one write for the whole part, so it goes out in one piece
-                let mut part = format!("--frame\r\nContent-Type: image/jpeg\r\nContent-Length: {}\r\n\r\n", jpeg.len()).into_bytes();
+                let mut part = format!(
+                    "--frame\r\nContent-Type: image/jpeg\r\nContent-Length: {}\r\n\r\n",
+                    jpeg.len()
+                )
+                .into_bytes();
                 part.extend_from_slice(&jpeg);
                 part.extend_from_slice(b"\r\n");
                 conn.write_all(&part)?;
@@ -231,7 +259,10 @@ mod tests {
 
     fn auth(user: i64) -> String {
         let q = signed(TOKEN, user, TimeDelta::seconds(1), Local::now(), &[]);
-        format!("?auth={}", url::form_urlencoded::byte_serialize(q.as_bytes()).collect::<String>())
+        format!(
+            "?auth={}",
+            url::form_urlencoded::byte_serialize(q.as_bytes()).collect::<String>()
+        )
     }
 
     fn status(url: &str) -> u16 {
@@ -246,7 +277,10 @@ mod tests {
     fn the_page_is_open_and_the_data_needs_auth() {
         let graph = Arc::new(Graph::new());
         graph.push(0.5);
-        let (_, base) = serve(Options { events: Some(graph), ..options(1) });
+        let (_, base) = serve(Options {
+            events: Some(graph),
+            ..options(1)
+        });
         let page = ureq::get(&format!("{base}/")).call().unwrap();
         assert_eq!(page.status(), 200);
         assert!(page.content_type().starts_with("text/html"));
@@ -255,15 +289,24 @@ mod tests {
 
         for path in ["/api/check", "/stream", "/events"] {
             assert_eq!(status(&format!("{base}{path}")), 401, "{path} without auth");
-            assert_eq!(status(&format!("{base}{path}{}", auth(7))), 401, "{path} for a user not allowed");
+            assert_eq!(
+                status(&format!("{base}{path}{}", auth(7))),
+                401,
+                "{path} for a user not allowed"
+            );
         }
         assert_eq!(status(&format!("{base}/api/check{}", auth(42))), 204);
-        let events = ureq::get(&format!("{base}/events{}", auth(42))).call().unwrap();
+        let events = ureq::get(&format!("{base}/events{}", auth(42)))
+            .call()
+            .unwrap();
         assert_eq!(events.status(), 200);
         assert_eq!(events.header("Cache-Control"), Some("no-store"));
         let mut text = [0u8; 64];
         let n = events.into_reader().read(&mut text).unwrap();
-        assert!(String::from_utf8_lossy(&text[..n]).starts_with("data: ["), "the graph's history comes first");
+        assert!(
+            String::from_utf8_lossy(&text[..n]).starts_with("data: ["),
+            "the graph's history comes first"
+        );
     }
 
     #[test]
@@ -275,7 +318,11 @@ mod tests {
     #[test]
     fn the_embedded_page_loads_its_assets() {
         let (_, base) = serve(options(1));
-        let page = ureq::get(&format!("{base}/")).call().unwrap().into_string().unwrap();
+        let page = ureq::get(&format!("{base}/"))
+            .call()
+            .unwrap()
+            .into_string()
+            .unwrap();
         let asset = page
             .split('"')
             .find(|s| s.starts_with("/assets/") && s.ends_with(".js"))
@@ -288,8 +335,14 @@ mod tests {
     fn streams_frames_to_viewers_up_to_the_limit() {
         let (s, base) = serve(options(1));
         assert!(!s.wanted(), "wanted with no viewer");
-        let resp = ureq::get(&format!("{base}/stream{}", auth(42))).call().unwrap();
-        assert!(resp.content_type().starts_with("multipart/x-mixed-replace"), "{}", resp.content_type());
+        let resp = ureq::get(&format!("{base}/stream{}", auth(42)))
+            .call()
+            .unwrap();
+        assert!(
+            resp.content_type().starts_with("multipart/x-mixed-replace"),
+            "{}",
+            resp.content_type()
+        );
         let deadline = Instant::now() + Duration::from_secs(5);
         while !s.wanted() && Instant::now() < deadline {
             std::thread::sleep(Duration::from_millis(1));
@@ -305,11 +358,20 @@ mod tests {
         let mut buf = [0u8; 256];
         while !got.ends_with(b"JPEGDATA\r\n") {
             let n = reader.read(&mut buf).unwrap();
-            assert!(n > 0, "the stream ended: {:?}", String::from_utf8_lossy(&got));
+            assert!(
+                n > 0,
+                "the stream ended: {:?}",
+                String::from_utf8_lossy(&got)
+            );
             got.extend_from_slice(&buf[..n]);
         }
         let got = String::from_utf8_lossy(&got);
-        assert!(got.starts_with("--frame\r\nContent-Type: image/jpeg\r\nContent-Length: 8\r\n\r\nJPEGDATA"), "{got:?}");
+        assert!(
+            got.starts_with(
+                "--frame\r\nContent-Type: image/jpeg\r\nContent-Length: 8\r\n\r\nJPEGDATA"
+            ),
+            "{got:?}"
+        );
 
         // when the viewer goes away the stream is over, and the next can come
         drop(reader);
@@ -324,9 +386,17 @@ mod tests {
 
     #[test]
     fn a_stream_ends_after_the_longest_time() {
-        let (s, base) = serve(Options { max_stream: Duration::from_millis(100), ..options(1) });
+        let (s, base) = serve(Options {
+            max_stream: Duration::from_millis(100),
+            ..options(1)
+        });
         let mut body = String::new();
-        ureq::get(&format!("{base}/stream{}", auth(42))).call().unwrap().into_reader().read_to_string(&mut body).unwrap();
+        ureq::get(&format!("{base}/stream{}", auth(42)))
+            .call()
+            .unwrap()
+            .into_reader()
+            .read_to_string(&mut body)
+            .unwrap();
         assert!(body.is_empty());
         let deadline = Instant::now() + Duration::from_secs(5);
         while s.wanted() && Instant::now() < deadline {
@@ -347,7 +417,11 @@ mod tests {
 
     #[test]
     fn parse_url_wants_https() {
-        for (input, want) in [("", ""), ("  ", ""), ("https://cam.tail1234.ts.net", "https://cam.tail1234.ts.net")] {
+        for (input, want) in [
+            ("", ""),
+            ("  ", ""),
+            ("https://cam.tail1234.ts.net", "https://cam.tail1234.ts.net"),
+        ] {
             assert_eq!(parse_url(input).as_deref(), Ok(want), "{input:?}");
         }
         for input in ["http://cam.ts.net", "cam.ts.net", "https://", "ftp://x"] {

@@ -44,7 +44,10 @@ pub struct Message {
 
 impl Message {
     pub fn new(text: &str) -> Message {
-        Message { text: text.to_owned(), ..Message::default() }
+        Message {
+            text: text.to_owned(),
+            ..Message::default()
+        }
     }
 
     /// The command in a message like "/snap" or "/snap@mybot arg" without the
@@ -200,7 +203,10 @@ impl Bot {
             #[serde(default)]
             is_member: bool,
         }
-        let r = self.check_client.post(&self.url("getChatMember")).send_json(json!({"chat_id": self.chat_id, "user_id": user_id}));
+        let r = self
+            .check_client
+            .post(&self.url("getChatMember"))
+            .send_json(json!({"chat_id": self.chat_id, "user_id": user_id}));
         let (status, body) = reply(r, 4096)?;
         // the description of an error is in the body, which may not be JSON (a proxy's page)
         let out: Out = serde_json::from_str(&body).unwrap_or_default();
@@ -208,7 +214,10 @@ impl Bot {
             return Ok(false);
         }
         if status != 200 {
-            return Err(format!("telegram: getChatMember: status {status}: {}", out.description));
+            return Err(format!(
+                "telegram: getChatMember: status {status}: {}",
+                out.description
+            ));
         }
         match out.result.status.as_str() {
             "creator" | "administrator" | "member" => Ok(true),
@@ -224,22 +233,40 @@ impl Bot {
     /// button, not the one of the configured chat: that may be a group, and a
     /// group has no menu button.
     pub fn set_menu_web_app(&self, label: &str, url: &str) -> Result<(), String> {
-        self.post("setChatMenuButton", json!({"menu_button": {"type": "web_app", "text": label, "web_app": {"url": url}}})).map(|_| ())
+        self.post(
+            "setChatMenuButton",
+            json!({"menu_button": {"type": "web_app", "text": label, "web_app": {"url": url}}}),
+        )
+        .map(|_| ())
     }
 
     /// Whether the Telegram API answers at all. Any HTTP reply counts, even an
     /// error one: it is the connection that is being tested.
     pub fn reachable(&self) -> bool {
-        matches!(self.client.get(&self.url("getMe")).call(), Ok(_) | Err(ureq::Error::Status(..)))
+        matches!(
+            self.client.get(&self.url("getMe")).call(),
+            Ok(_) | Err(ureq::Error::Status(..))
+        )
     }
 
     /// Shows "typing…" in the chat while a GIF is on its way. It is only a
     /// courtesy: if it fails the GIF is sent all the same.
     fn send_typing(&self) {
-        let _ = self.post("sendChatAction", json!({"chat_id": self.chat_id, "action": "typing"}));
+        let _ = self.post(
+            "sendChatAction",
+            json!({"chat_id": self.chat_id, "action": "typing"}),
+        );
     }
 
-    fn upload(&self, method: &str, field: &str, filename: &str, data: &[u8], caption: &str, reply_to: i64) -> Result<(), String> {
+    fn upload(
+        &self,
+        method: &str,
+        field: &str,
+        filename: &str,
+        data: &[u8],
+        caption: &str,
+        reply_to: i64,
+    ) -> Result<(), String> {
         let boundary = format!("----securitycamera{:016x}", boundary_seed());
         let mut body: Vec<u8> = Vec::with_capacity(data.len() + 512);
         let mut text_field = |name: &str, value: &str| {
@@ -250,7 +277,10 @@ impl Bot {
             text_field("caption", caption);
         }
         if reply_to != 0 {
-            text_field("reply_parameters", &format!(r#"{{"message_id":{reply_to},"allow_sending_without_reply":true}}"#));
+            text_field(
+                "reply_parameters",
+                &format!(r#"{{"message_id":{reply_to},"allow_sending_without_reply":true}}"#),
+            );
         }
         body.extend_from_slice(
             format!("--{boundary}\r\nContent-Disposition: form-data; name=\"{field}\"; filename=\"{filename}\"\r\nContent-Type: application/octet-stream\r\n\r\n").as_bytes(),
@@ -261,7 +291,10 @@ impl Bot {
         let r = self
             .upload_client
             .post(&self.url(method))
-            .set("Content-Type", &format!("multipart/form-data; boundary={boundary}"))
+            .set(
+                "Content-Type",
+                &format!("multipart/form-data; boundary={boundary}"),
+            )
             .send_bytes(&body);
         check_ok(reply(r, 512)?).map(|_| ())
     }
@@ -270,7 +303,10 @@ impl Bot {
     /// Messages from other chats are ignored. It is safe to call while `run`
     /// is active.
     pub fn add_listener(&self, l: impl Fn(&Message) + Send + Sync + 'static) {
-        self.listeners.write().unwrap_or_else(|e| e.into_inner()).push(Box::new(l));
+        self.listeners
+            .write()
+            .unwrap_or_else(|e| e.into_inner())
+            .push(Box::new(l));
     }
 
     /// Registers a listener for the reactions added to messages in the
@@ -278,7 +314,10 @@ impl Bot {
     /// reported). Telegram only sends reactions to a bot that is an
     /// administrator of a group; in a private chat it always does.
     pub fn add_reaction_listener(&self, l: impl Fn(&Reaction) + Send + Sync + 'static) {
-        self.reactions.write().unwrap_or_else(|e| e.into_inner()).push(Box::new(l));
+        self.reactions
+            .write()
+            .unwrap_or_else(|e| e.into_inner())
+            .push(Box::new(l));
     }
 
     /// Long-polls for new messages and dispatches the ones from the configured
@@ -305,11 +344,18 @@ impl Bot {
             for u in updates {
                 offset = u.update_id + 1;
                 if let Some(r) = &u.message_reaction {
-                    eprintln!("telegram: reaction update on message {} in chat {} (configured chat {})", r.message_id, r.chat.id, self.chat_id);
+                    eprintln!(
+                        "telegram: reaction update on message {} in chat {} (configured chat {})",
+                        r.message_id, r.chat.id, self.chat_id
+                    );
                     if r.chat.id.to_string() == self.chat_id {
                         let from = r.user.name();
                         for emoji in added_emoji(&r.old_reaction, &r.new_reaction) {
-                            self.dispatch_reaction(&Reaction { message_id: r.message_id, emoji, from: from.clone() });
+                            self.dispatch_reaction(&Reaction {
+                                message_id: r.message_id,
+                                emoji,
+                                from: from.clone(),
+                            });
                         }
                     }
                 }
@@ -317,19 +363,34 @@ impl Bot {
                 if m.text.is_empty() || m.chat.id.to_string() != self.chat_id {
                     continue;
                 }
-                self.dispatch(&Message { id: m.message_id, text: m.text.clone(), from: m.from.name(), time: m.date });
+                self.dispatch(&Message {
+                    id: m.message_id,
+                    text: m.text.clone(),
+                    from: m.from.name(),
+                    time: m.date,
+                });
             }
         }
     }
 
     fn dispatch_reaction(&self, r: &Reaction) {
-        for l in self.reactions.read().unwrap_or_else(|e| e.into_inner()).iter() {
+        for l in self
+            .reactions
+            .read()
+            .unwrap_or_else(|e| e.into_inner())
+            .iter()
+        {
             l(r);
         }
     }
 
     fn dispatch(&self, m: &Message) {
-        for l in self.listeners.read().unwrap_or_else(|e| e.into_inner()).iter() {
+        for l in self
+            .listeners
+            .read()
+            .unwrap_or_else(|e| e.into_inner())
+            .iter()
+        {
             l(m);
         }
     }
@@ -346,7 +407,9 @@ impl Bot {
             #[serde(default)]
             result: Vec<Update>,
         }
-        serde_json::from_str::<Out>(&body).map(|o| o.result).map_err(|e| format!("telegram: decode updates: {e}"))
+        serde_json::from_str::<Out>(&body)
+            .map(|o| o.result)
+            .map_err(|e| format!("telegram: decode updates: {e}"))
     }
 }
 
@@ -358,7 +421,10 @@ fn boundary_seed() -> u64 {
 
 impl Chat for Bot {
     fn send(&self, text: &str) -> Result<i64, String> {
-        let body = self.post("sendMessage", json!({"chat_id": self.chat_id, "text": text}))?;
+        let body = self.post(
+            "sendMessage",
+            json!({"chat_id": self.chat_id, "text": text}),
+        )?;
         // the message is sent, a reply that can't be read only costs its id
         #[derive(Deserialize, Default)]
         struct Out {
@@ -370,7 +436,10 @@ impl Chat for Bot {
             #[serde(default)]
             message_id: i64,
         }
-        Ok(serde_json::from_str::<Out>(&body).unwrap_or_default().result.message_id)
+        Ok(serde_json::from_str::<Out>(&body)
+            .unwrap_or_default()
+            .result
+            .message_id)
     }
 
     fn send_photo(&self, jpeg: &[u8], caption: &str) -> Result<(), String> {
@@ -384,7 +453,14 @@ impl Chat for Bot {
 
     fn send_animation_reply(&self, gif: &[u8], caption: &str, reply_to: i64) -> Result<(), String> {
         self.send_typing();
-        self.upload("sendAnimation", "animation", "alarm.gif", gif, caption, reply_to)
+        self.upload(
+            "sendAnimation",
+            "animation",
+            "alarm.gif",
+            gif,
+            caption,
+            reply_to,
+        )
     }
 
     fn send_web_app_button(&self, text: &str, label: &str, url: &str) -> Result<(), String> {
@@ -432,7 +508,11 @@ struct UserRef {
 
 impl UserRef {
     fn name(&self) -> String {
-        if self.username.is_empty() { self.first_name.clone() } else { self.username.clone() }
+        if self.username.is_empty() {
+            self.first_name.clone()
+        } else {
+            self.username.clone()
+        }
     }
 }
 
@@ -515,8 +595,17 @@ mod tests {
             "127.0.0.1:0",
             1 << 20,
             Arc::new(move |req: &Request| {
-                let query = req.query.iter().map(|(k, v)| format!("{k}={v}")).collect::<Vec<_>>().join("&");
-                log.lock().unwrap().push(Seen { path: req.path.clone(), query, body: req.body.clone() });
+                let query = req
+                    .query
+                    .iter()
+                    .map(|(k, v)| format!("{k}={v}"))
+                    .collect::<Vec<_>>()
+                    .join("&");
+                log.lock().unwrap().push(Seen {
+                    path: req.path.clone(),
+                    query,
+                    body: req.body.clone(),
+                });
                 answer(req)
             }),
         )
@@ -541,7 +630,10 @@ mod tests {
     }
 
     fn find(hay: &[u8], needle: &[u8], from: usize) -> Option<usize> {
-        hay.get(from..)?.windows(needle.len()).position(|w| w == needle).map(|i| i + from)
+        hay.get(from..)?
+            .windows(needle.len())
+            .position(|w| w == needle)
+            .map(|i| i + from)
     }
 
     /// The part `name` of a multipart body, as bytes.
@@ -577,10 +669,16 @@ mod tests {
     fn errors_have_the_status_but_not_the_token() {
         let f = fake(|_| Response::text(500, "boom"));
         let e = f.bot("42").send("hi").unwrap_err();
-        assert!(e.contains("status 500") && e.contains("boom") && !e.contains("TOKEN"), "{e}");
+        assert!(
+            e.contains("status 500") && e.contains("boom") && !e.contains("TOKEN"),
+            "{e}"
+        );
         let bot = Bot::with_api("SECRETTOKEN", "42", "http://127.0.0.1:1").unwrap();
         let e = bot.send("hi").unwrap_err();
-        assert!(!e.contains("SECRETTOKEN") && e.contains("request failed"), "{e}");
+        assert!(
+            !e.contains("SECRETTOKEN") && e.contains("request failed"),
+            "{e}"
+        );
     }
 
     #[test]
@@ -601,9 +699,15 @@ mod tests {
     #[test]
     fn send_animation_reply_names_the_message() {
         let f = fake(|_| ok("{}"));
-        f.bot("42").send_animation_reply(b"GIF89a", "cap", 55).unwrap();
+        f.bot("42")
+            .send_animation_reply(b"GIF89a", "cap", 55)
+            .unwrap();
         let reply = part(&f.last().body, "reply_parameters").unwrap();
-        assert!(String::from_utf8(reply).unwrap().contains(r#""message_id":55"#));
+        assert!(
+            String::from_utf8(reply)
+                .unwrap()
+                .contains(r#""message_id":55"#)
+        );
     }
 
     #[test]
@@ -622,10 +726,20 @@ mod tests {
 
     #[test]
     fn commands_args_and_payload() {
-        for (text, want) in [("/snap", "snap"), ("/snap@mybot now", "snap"), ("hello", ""), ("/", "")] {
+        for (text, want) in [
+            ("/snap", "snap"),
+            ("/snap@mybot now", "snap"),
+            ("hello", ""),
+            ("/", ""),
+        ] {
             assert_eq!(Message::new(text).command(), want, "{text:?}");
         }
-        for (text, want) in [("/threshold 0.1", "0.1"), ("/threshold@mybot 0.1 x", "0.1 x"), ("/snap", ""), ("hello there", "")] {
+        for (text, want) in [
+            ("/threshold 0.1", "0.1"),
+            ("/threshold@mybot 0.1 x", "0.1 x"),
+            ("/snap", ""),
+            ("hello there", ""),
+        ] {
             assert_eq!(Message::new(text).args().join(" "), want, "{text:?}");
         }
         for (text, want) in [
@@ -643,25 +757,45 @@ mod tests {
     fn web_app_buttons() {
         let f = fake(|_| ok("{}"));
         let bot = f.bot("42");
-        bot.send_web_app_button("hello", "Open", "https://x.ts.net").unwrap();
+        bot.send_web_app_button("hello", "Open", "https://x.ts.net")
+            .unwrap();
         let r = f.last();
         assert_eq!(r.path, "/botTOKEN/sendMessage");
         let b = r.json();
         assert_eq!(b["text"], "hello");
-        assert_eq!(b["reply_markup"]["inline_keyboard"][0][0], json!({"text": "Open", "web_app": {"url": "https://x.ts.net"}}));
+        assert_eq!(
+            b["reply_markup"]["inline_keyboard"][0][0],
+            json!({"text": "Open", "web_app": {"url": "https://x.ts.net"}})
+        );
 
         bot.set_menu_web_app("Camera", "https://x.ts.net").unwrap();
         let r = f.last();
         assert_eq!(r.path, "/botTOKEN/setChatMenuButton");
         let b = r.json();
-        assert!(b.get("chat_id").is_none(), "the menu button must be the default one: {b}");
-        assert_eq!(b["menu_button"], json!({"type": "web_app", "text": "Camera", "web_app": {"url": "https://x.ts.net"}}));
+        assert!(
+            b.get("chat_id").is_none(),
+            "the menu button must be the default one: {b}"
+        );
+        assert_eq!(
+            b["menu_button"],
+            json!({"type": "web_app", "text": "Camera", "web_app": {"url": "https://x.ts.net"}})
+        );
     }
 
     #[test]
     fn is_member_by_status() {
-        for (status, want) in [("creator", true), ("administrator", true), ("member", true), ("left", false), ("kicked", false)] {
-            let f = fake(move |_| ok(&format!(r#"{{"ok":true,"result":{{"status":"{status}"}}}}"#)));
+        for (status, want) in [
+            ("creator", true),
+            ("administrator", true),
+            ("member", true),
+            ("left", false),
+            ("kicked", false),
+        ] {
+            let f = fake(move |_| {
+                ok(&format!(
+                    r#"{{"ok":true,"result":{{"status":"{status}"}}}}"#
+                ))
+            });
             assert_eq!(f.bot("-100123").is_member(42), Ok(want), "{status}");
             let r = f.last();
             assert_eq!(r.path, "/botTOKEN/getChatMember");
@@ -669,20 +803,42 @@ mod tests {
         }
         // restricted users are in the chat only if is_member says so
         for want in [true, false] {
-            let f = fake(move |_| ok(&format!(r#"{{"ok":true,"result":{{"status":"restricted","is_member":{want}}}}}"#)));
+            let f = fake(move |_| {
+                ok(&format!(
+                    r#"{{"ok":true,"result":{{"status":"restricted","is_member":{want}}}}}"#
+                ))
+            });
             assert_eq!(f.bot("-1").is_member(1), Ok(want));
         }
     }
 
     #[test]
     fn is_member_unknown_user_is_a_no_and_other_failures_are_errors() {
-        let f = fake(|_| Response::new(400, "application/json", r#"{"ok":false,"description":"Bad Request: user not found"}"#));
+        let f = fake(|_| {
+            Response::new(
+                400,
+                "application/json",
+                r#"{"ok":false,"description":"Bad Request: user not found"}"#,
+            )
+        });
         assert_eq!(f.bot("-1").is_member(1), Ok(false));
         for (name, status, body) in [
-            ("bad chat", 400, r#"{"ok":false,"description":"Bad Request: chat not found"}"#),
-            ("not admin", 403, r#"{"ok":false,"description":"Forbidden: bot is not a member"}"#),
+            (
+                "bad chat",
+                400,
+                r#"{"ok":false,"description":"Bad Request: chat not found"}"#,
+            ),
+            (
+                "not admin",
+                403,
+                r#"{"ok":false,"description":"Forbidden: bot is not a member"}"#,
+            ),
             ("server", 500, "oops"),
-            ("unknown status", 200, r#"{"ok":true,"result":{"status":"alien"}}"#),
+            (
+                "unknown status",
+                200,
+                r#"{"ok":true,"result":{"status":"alien"}}"#,
+            ),
         ] {
             let f = fake(move |_| Response::new(status, "application/json", body));
             assert!(f.bot("-1").is_member(1).is_err(), "{name}");
@@ -693,14 +849,24 @@ mod tests {
     fn reachable_counts_any_reply() {
         let f = fake(|_| Response::text(401, "unauthorized"));
         assert!(f.bot("1").reachable());
-        assert!(!Bot::with_api("T", "1", "http://127.0.0.1:1").unwrap().reachable());
+        assert!(
+            !Bot::with_api("T", "1", "http://127.0.0.1:1")
+                .unwrap()
+                .reachable()
+        );
     }
 
     /// Runs the bot against a server that hands out `first` and then nothing,
     /// until `done` says it saw what it wanted.
     fn poll(chat: &str, first: &'static str, listen: impl FnOnce(&Bot, mpsc::Sender<()>)) -> Fake {
         let calls = Arc::new(AtomicUsize::new(0));
-        let f = fake(move |_| ok(if calls.fetch_add(1, Ordering::SeqCst) == 0 { first } else { r#"{"ok":true,"result":[]}"# }));
+        let f = fake(move |_| {
+            ok(if calls.fetch_add(1, Ordering::SeqCst) == 0 {
+                first
+            } else {
+                r#"{"ok":true,"result":[]}"#
+            })
+        });
         let mut bot = f.bot(chat);
         bot.set_poll_timeout(Duration::ZERO);
         let (tx, rx) = mpsc::channel();
@@ -730,11 +896,23 @@ mod tests {
                 {"update_id":12,"message":{"message_id":3,"date":102,"chat":{"id":-42},"from":{"first_name":"Al"}}}]}"#,
             move |bot, _| bot.add_listener(move |m| g.lock().unwrap().push(m.clone())),
         );
-        assert_eq!(*got.lock().unwrap(), [Message { id: 1, text: "hello".into(), from: "bob".into(), time: 100 }]);
+        assert_eq!(
+            *got.lock().unwrap(),
+            [Message {
+                id: 1,
+                text: "hello".into(),
+                from: "bob".into(),
+                time: 100
+            }]
+        );
         let reqs = f.requests();
         assert_eq!(reqs[0].path, "/botTOKEN/getUpdates");
         assert!(reqs[0].query.contains("offset=0"), "{}", reqs[0].query);
-        assert!(reqs[1].query.contains("offset=13"), "the next poll skips what was seen: {}", reqs[1].query);
+        assert!(
+            reqs[1].query.contains("offset=13"),
+            "the next poll skips what was seen: {}",
+            reqs[1].query
+        );
     }
 
     #[test]
@@ -753,8 +931,18 @@ mod tests {
                     "old_reaction":[{"type":"emoji","emoji":"👍"}],"new_reaction":[]}}]}"#,
             move |bot, _| bot.add_reaction_listener(move |r| g.lock().unwrap().push(r.clone())),
         );
-        assert_eq!(*got.lock().unwrap(), [Reaction { message_id: 9, emoji: "👍".into(), from: "bob".into() }]);
-        assert!(f.requests()[0].query.contains("message_reaction"), "getUpdates does not ask for reactions");
+        assert_eq!(
+            *got.lock().unwrap(),
+            [Reaction {
+                message_id: 9,
+                emoji: "👍".into(),
+                from: "bob".into()
+            }]
+        );
+        assert!(
+            f.requests()[0].query.contains("message_reaction"),
+            "getUpdates does not ask for reactions"
+        );
     }
 
     #[test]

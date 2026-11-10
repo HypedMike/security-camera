@@ -69,7 +69,9 @@ fn kv_kb(s: &str) -> std::collections::HashMap<String, u64> {
 }
 
 fn read_file(path: impl AsRef<Path>) -> String {
-    fs::read_to_string(path).map(|s| s.trim().to_owned()).unwrap_or_default()
+    fs::read_to_string(path)
+        .map(|s| s.trim().to_owned())
+        .unwrap_or_default()
 }
 
 /// One temperature reading.
@@ -79,18 +81,37 @@ struct Sensor {
 }
 
 /// Every file matching `dir/<prefix>*/<file>` style patterns that std can't glob.
-fn sensors_in(dir: &str, entry_prefix: &str, temp_files: impl Fn(&Path) -> Vec<std::path::PathBuf>, name_file: &str) -> Vec<Sensor> {
-    let mut entries: Vec<_> = fs::read_dir(dir).into_iter().flatten().flatten().map(|e| e.path()).collect();
+fn sensors_in(
+    dir: &str,
+    entry_prefix: &str,
+    temp_files: impl Fn(&Path) -> Vec<std::path::PathBuf>,
+    name_file: &str,
+) -> Vec<Sensor> {
+    let mut entries: Vec<_> = fs::read_dir(dir)
+        .into_iter()
+        .flatten()
+        .flatten()
+        .map(|e| e.path())
+        .collect();
     entries.sort();
     let mut out = Vec::new();
-    for d in entries.into_iter().filter(|p| p.file_name().is_some_and(|n| n.to_string_lossy().starts_with(entry_prefix))) {
+    for d in entries.into_iter().filter(|p| {
+        p.file_name()
+            .is_some_and(|n| n.to_string_lossy().starts_with(entry_prefix))
+    }) {
         let mut name = read_file(d.join(name_file));
         if name.is_empty() {
-            name = d.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+            name = d
+                .file_name()
+                .map(|n| n.to_string_lossy().into_owned())
+                .unwrap_or_default();
         }
         for f in temp_files(&d) {
             if let Ok(v) = read_file(&f).parse::<f64>() {
-                out.push(Sensor { name: name.clone(), c: v / 1000.0 });
+                out.push(Sensor {
+                    name: name.clone(),
+                    c: v / 1000.0,
+                });
             }
         }
     }
@@ -99,7 +120,12 @@ fn sensors_in(dir: &str, entry_prefix: &str, temp_files: impl Fn(&Path) -> Vec<s
 
 /// Every thermal zone, falling back to hwmon sensors when there are none.
 fn read_temperatures() -> Vec<Sensor> {
-    let zones = sensors_in("/sys/class/thermal", "thermal_zone", |d| vec![d.join("temp")], "type");
+    let zones = sensors_in(
+        "/sys/class/thermal",
+        "thermal_zone",
+        |d| vec![d.join("temp")],
+        "type",
+    );
     if !zones.is_empty() {
         return zones;
     }
@@ -112,7 +138,12 @@ fn read_temperatures() -> Vec<Sensor> {
                 .flatten()
                 .flatten()
                 .map(|e| e.path())
-                .filter(|p| p.file_name().is_some_and(|n| n.to_string_lossy().starts_with("temp") && n.to_string_lossy().ends_with("_input")))
+                .filter(|p| {
+                    p.file_name().is_some_and(|n| {
+                        n.to_string_lossy().starts_with("temp")
+                            && n.to_string_lossy().ends_with("_input")
+                    })
+                })
                 .collect();
             files.sort();
             files
@@ -123,7 +154,10 @@ fn read_temperatures() -> Vec<Sensor> {
 
 /// The hottest sensor in °C; `None` if the machine has no readable sensor.
 pub fn max_temperature() -> Option<f64> {
-    read_temperatures().into_iter().map(|s| s.c).max_by(f64::total_cmp)
+    read_temperatures()
+        .into_iter()
+        .map(|s| s.c)
+        .max_by(f64::total_cmp)
 }
 
 /// The size of the disk holding `dir` and how much of it is free to use, in bytes.
@@ -163,7 +197,11 @@ fn gb(b: u64) -> String {
 }
 
 fn pct(part: u64, whole: u64) -> f64 {
-    if whole == 0 { 0.0 } else { 100.0 * part as f64 / whole as f64 }
+    if whole == 0 {
+        0.0
+    } else {
+        100.0 * part as f64 / whole as f64
+    }
 }
 
 /// A duration as "3d 4h5m6s", the days first when there are any.
@@ -171,7 +209,11 @@ fn format_duration(d: Duration) -> String {
     let d = round_secs(d);
     let days = d.as_secs() / 86_400;
     let rest = d - Duration::from_secs(days * 86_400);
-    if days > 0 { format!("{days}d {}", go_duration(rest)) } else { go_duration(rest) }
+    if days > 0 {
+        format!("{days}d {}", go_duration(rest))
+    } else {
+        go_duration(rest)
+    }
 }
 
 fn cores() -> usize {
@@ -207,13 +249,31 @@ pub fn report(dir: &str) -> String {
     };
 
     section!("System");
-    line!("host: {} ({}/{})", hostname(), std::env::consts::OS, std::env::consts::ARCH);
-    if let Some(secs) = read_file("/proc/uptime").split(' ').next().and_then(|s| s.parse::<f64>().ok()) {
+    line!(
+        "host: {} ({}/{})",
+        hostname(),
+        std::env::consts::OS,
+        std::env::consts::ARCH
+    );
+    if let Some(secs) = read_file("/proc/uptime")
+        .split(' ')
+        .next()
+        .and_then(|s| s.parse::<f64>().ok())
+    {
         line!("uptime: {}", format_duration(Duration::from_secs_f64(secs)));
     }
-    let load: Vec<String> = read_file("/proc/loadavg").split_whitespace().map(str::to_owned).collect();
+    let load: Vec<String> = read_file("/proc/loadavg")
+        .split_whitespace()
+        .map(str::to_owned)
+        .collect();
     if load.len() >= 3 {
-        line!("load average: {} {} {} ({} cores)", load[0], load[1], load[2], cores());
+        line!(
+            "load average: {} {} {} ({} cores)",
+            load[0],
+            load[1],
+            load[2],
+            cores()
+        );
     }
 
     section!("CPU");
@@ -233,20 +293,39 @@ pub fn report(dir: &str) -> String {
     if get("MemTotal") > 0 {
         section!("Memory");
         let used = get("MemTotal").saturating_sub(get("MemAvailable"));
-        line!("ram: {} / {} ({:.1}%)", mb(used), mb(get("MemTotal")), pct(used, get("MemTotal")));
+        line!(
+            "ram: {} / {} ({:.1}%)",
+            mb(used),
+            mb(get("MemTotal")),
+            pct(used, get("MemTotal"))
+        );
         if get("SwapTotal") > 0 {
             let swap_used = get("SwapTotal").saturating_sub(get("SwapFree"));
-            line!("swap: {} / {} ({:.1}%)", mb(swap_used), mb(get("SwapTotal")), pct(swap_used, get("SwapTotal")));
+            line!(
+                "swap: {} / {} ({:.1}%)",
+                mb(swap_used),
+                mb(get("SwapTotal")),
+                pct(swap_used, get("SwapTotal"))
+            );
         }
     }
 
     if let Some((total, free)) = disk(dir) {
         section!("Disk");
-        line!("{dir}: {} free of {} ({:.1}% used)", gb(free), gb(total), pct(total - free, total));
+        line!(
+            "{dir}: {} free of {} ({:.1}% used)",
+            gb(free),
+            gb(total),
+            pct(total - free, total)
+        );
     }
 
     section!("Security camera process");
-    line!("pid: {}, running for {}", std::process::id(), format_duration(start_time().elapsed()));
+    line!(
+        "pid: {}, running for {}",
+        std::process::id(),
+        format_duration(start_time().elapsed())
+    );
     if let (Some(p0), Some(p1), Some((_, total))) = (proc0, proc1, machine) {
         // jiffies of this process over jiffies of all cores: 100% means one full core
         let share = p1.saturating_sub(p0) as f64 / total as f64 * cores() as f64;
@@ -269,7 +348,10 @@ mod tests {
 
     #[test]
     fn cpu_times_from_proc_stat() {
-        assert_eq!(cpu_times("cpu  100 10 50 800 40 0 0 0 0 0\ncpu0 1 2 3 4 5\n"), Some((160, 1000)));
+        assert_eq!(
+            cpu_times("cpu  100 10 50 800 40 0 0 0 0 0\ncpu0 1 2 3 4 5\n"),
+            Some((160, 1000))
+        );
         assert_eq!(cpu_times("garbage"), None);
         assert_eq!(cpu_times("cpu 1 2 x 4 5"), None);
     }

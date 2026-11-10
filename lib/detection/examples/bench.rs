@@ -21,13 +21,26 @@ fn main() {
     }
     let mut d = Background::new();
     for i in 0..40 {
-        d.score(Frame::Gray { data: &frames[i % 4], width: w, height: h, stride: w }).unwrap();
+        d.score(Frame::Gray {
+            data: &frames[i % 4],
+            width: w,
+            height: h,
+            stride: w,
+        })
+        .unwrap();
     }
     let n = 2000;
     let t = Instant::now();
     let mut last = 0.0;
     for i in 0..n {
-        last = d.score(Frame::Gray { data: &frames[i % 8], width: w, height: h, stride: w }).unwrap();
+        last = d
+            .score(Frame::Gray {
+                data: &frames[i % 8],
+                width: w,
+                height: h,
+                stride: w,
+            })
+            .unwrap();
     }
     println!("{:?}/frame (last score {last})", t.elapsed() / n as u32);
 }

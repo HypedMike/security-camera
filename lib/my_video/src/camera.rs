@@ -3,7 +3,8 @@
 use crate::{Device, Frame, Source};
 use nokhwa::pixel_format::RgbAFormat;
 use nokhwa::utils::{
-    ApiBackend, CameraFormat, CameraIndex, FrameFormat, RequestedFormat, RequestedFormatType, Resolution,
+    ApiBackend, CameraFormat, CameraIndex, FrameFormat, RequestedFormat, RequestedFormatType,
+    Resolution,
 };
 use nokhwa::{Camera, query};
 
@@ -34,7 +35,10 @@ pub fn devices() -> Vec<Device> {
                 .map(|s| s.to_string())
                 .collect::<Vec<_>>()
                 .join(";");
-            Device { id: i.index().as_string(), label }
+            Device {
+                id: i.index().as_string(),
+                label,
+            }
         })
         .collect()
 }
@@ -62,7 +66,11 @@ fn authorize() -> Result<(), String> {
 pub fn open(id: &str, width: u32, height: u32) -> Result<Box<dyn Source>, String> {
     authorize()?;
     // an empty id is the default camera
-    let index = if id.is_empty() { CameraIndex::Index(0) } else { CameraIndex::String(id.to_string()) };
+    let index = if id.is_empty() {
+        CameraIndex::Index(0)
+    } else {
+        CameraIndex::String(id.to_string())
+    };
     // YUYV is what the cameras deliver uncompressed; the closest format is
     // taken if the camera has no such mode
     let wanted = CameraFormat::new(Resolution::new(width, height), FrameFormat::YUYV, 30);
@@ -93,6 +101,9 @@ impl Source for Nokhwa {
                 Err(e) => bad = Some(e.to_string()),
             }
         }
-        Err(format!("too many broken frames: {}", bad.unwrap_or_default()))
+        Err(format!(
+            "too many broken frames: {}",
+            bad.unwrap_or_default()
+        ))
     }
 }

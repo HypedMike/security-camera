@@ -10,7 +10,6 @@
 //! An alarm is named by the id `begin` gives. Once it is forgotten (only the
 //! latest `KEPT` are remembered) every call about it does nothing.
 
-
 use std::collections::{HashMap, VecDeque};
 use std::fmt::Write;
 use std::sync::{Mutex, MutexGuard};
@@ -160,7 +159,9 @@ impl Log {
             return;
         }
         let mut l = self.lock();
-        let Inner { alarms, by_message, .. } = &mut *l;
+        let Inner {
+            alarms, by_message, ..
+        } = &mut *l;
         let Some(a) = find(alarms, id) else { return };
         let old = std::mem::replace(&mut a.message_id, message_id);
         if by_message.get(&old) == Some(&id) {
@@ -253,7 +254,13 @@ impl Log {
         }
         let mut b = format!("Latest {} alarms, newest first:", alarms.len());
         for a in &alarms {
-            let _ = write!(b, "\n{} {} {:.4}: ", clock(a.at, a.utc_offset), a.detector, a.score);
+            let _ = write!(
+                b,
+                "\n{} {} {:.4}: ",
+                clock(a.at, a.utc_offset),
+                a.detector,
+                a.score
+            );
             let _ = match a.status {
                 Status::Recording => write!(b, "recording the GIF"),
                 Status::Failed => write!(b, "no GIF ({})", a.reason),
@@ -282,7 +289,10 @@ mod tests {
         let a = l.begin(0, 0, "background", 0.1, "abc123");
         l.posted(a, 7);
         assert_eq!(l.request(7), (Some(a), Action::Later));
-        assert!(l.finish(a, None), "somebody asked before it was ready: finish should say to send");
+        assert!(
+            l.finish(a, None),
+            "somebody asked before it was ready: finish should say to send"
+        );
         assert_eq!(l.request(7).1, Action::Nothing, "after it is being sent");
         l.unsent(a);
         assert_eq!(l.request(7), (Some(a), Action::Send), "after a failed send");
@@ -339,8 +349,16 @@ mod tests {
             l.posted(id, i);
             ids.push(id);
         }
-        assert_eq!(l.request(1).1, Action::Unknown, "alarm 1 should be forgotten");
-        assert_ne!(l.request((KEPT + 5) as i64).1, Action::Unknown, "the latest alarm should be remembered");
+        assert_eq!(
+            l.request(1).1,
+            Action::Unknown,
+            "alarm 1 should be forgotten"
+        );
+        assert_ne!(
+            l.request((KEPT + 5) as i64).1,
+            Action::Unknown,
+            "the latest alarm should be remembered"
+        );
         assert_eq!(l.lock().by_message.len(), KEPT);
         // calls about a forgotten alarm do nothing
         l.posted(ids[0], 1000);

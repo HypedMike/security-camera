@@ -4,7 +4,6 @@
 
 use gif::Image;
 
-
 #[derive(Default)]
 struct Slot {
     width: usize,
@@ -21,7 +20,11 @@ pub struct Ring {
 
 impl Ring {
     pub fn new(capacity: usize) -> Ring {
-        Ring { slots: (0..capacity).map(|_| Slot::default()).collect(), next: 0, count: 0 }
+        Ring {
+            slots: (0..capacity).map(|_| Slot::default()).collect(),
+            next: 0,
+            count: 0,
+        }
     }
 
     pub fn capacity(&self) -> usize {
@@ -85,7 +88,12 @@ mod tests {
 
     fn push(r: &mut Ring, v: u8) {
         let px = [v, 0, 0, 255];
-        r.remember(&Image::Rgba { data: &px, width: 1, height: 1, stride: 4 });
+        r.remember(&Image::Rgba {
+            data: &px,
+            width: 1,
+            height: 1,
+            stride: 4,
+        });
     }
 
     fn reds(r: &Ring) -> Vec<u8> {
@@ -126,7 +134,17 @@ mod tests {
     #[test]
     fn ycbcr_frames_are_converted() {
         let mut r = Ring::new(1);
-        r.remember(&Image::YCbCr { y: &[255], cb: &[128], cr: &[128], ystride: 1, cstride: 1, xs: 0, ys: 0, width: 1, height: 1 });
+        r.remember(&Image::YCbCr {
+            y: &[255],
+            cb: &[128],
+            cr: &[128],
+            ystride: 1,
+            cstride: 1,
+            xs: 0,
+            ys: 0,
+            width: 1,
+            height: 1,
+        });
         assert_eq!(r.frame(0).unwrap().0, [255, 255, 255, 255]);
     }
 }

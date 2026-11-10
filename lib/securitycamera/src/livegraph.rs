@@ -56,7 +56,8 @@ impl Graph {
             s.history.pop_front();
         }
         // a browser that went away has dropped its receiver
-        s.subs.retain(|tx| !matches!(tx.try_send(p), Err(TrySendError::Disconnected(_))));
+        s.subs
+            .retain(|tx| !matches!(tx.try_send(p), Err(TrySendError::Disconnected(_))));
     }
 
     fn subscribe(&self) -> (Vec<Point>, Receiver<Point>) {
@@ -104,7 +105,11 @@ impl Graph {
 
 /// Serves the graph page on `addr` (e.g. "0.0.0.0:8080") in a new thread.
 pub fn listen(graph: std::sync::Arc<Graph>, addr: &str) -> io::Result<()> {
-    httpd::spawn(addr, 0, std::sync::Arc::new(move |req: &Request| graph.handle(req)))?;
+    httpd::spawn(
+        addr,
+        0,
+        std::sync::Arc::new(move |req: &Request| graph.handle(req)),
+    )?;
     Ok(())
 }
 
@@ -129,7 +134,8 @@ mod tests {
         let g = Arc::new(Graph::new());
         g.push(0.25);
         let g2 = g.clone();
-        let addr = httpd::spawn("127.0.0.1:0", 0, Arc::new(move |r: &Request| g2.handle(r))).unwrap();
+        let addr =
+            httpd::spawn("127.0.0.1:0", 0, Arc::new(move |r: &Request| g2.handle(r))).unwrap();
 
         let resp = ureq::get(&format!("http://{addr}/events")).call().unwrap();
         assert_eq!(resp.content_type(), "text/event-stream");
@@ -144,10 +150,18 @@ mod tests {
     #[test]
     fn serves_the_page_and_nothing_else() {
         let g = Arc::new(Graph::new());
-        let addr = httpd::spawn("127.0.0.1:0", 0, Arc::new(move |r: &Request| g.handle(r))).unwrap();
-        let page = ureq::get(&format!("http://{addr}/")).call().unwrap().into_string().unwrap();
+        let addr =
+            httpd::spawn("127.0.0.1:0", 0, Arc::new(move |r: &Request| g.handle(r))).unwrap();
+        let page = ureq::get(&format!("http://{addr}/"))
+            .call()
+            .unwrap()
+            .into_string()
+            .unwrap();
         assert!(page.contains("/events"));
-        assert!(matches!(ureq::get(&format!("http://{addr}/other")).call(), Err(ureq::Error::Status(404, _))));
+        assert!(matches!(
+            ureq::get(&format!("http://{addr}/other")).call(),
+            Err(ureq::Error::Status(404, _))
+        ));
     }
 
     #[test]

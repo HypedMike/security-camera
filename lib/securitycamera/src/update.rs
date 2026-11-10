@@ -90,7 +90,11 @@ mod tests {
 
     fn script(body: &str) -> String {
         static N: AtomicU32 = AtomicU32::new(0);
-        let dir = std::env::temp_dir().join(format!("sc-update-{}-{}", std::process::id(), N.fetch_add(1, Ordering::Relaxed)));
+        let dir = std::env::temp_dir().join(format!(
+            "sc-update-{}-{}",
+            std::process::id(),
+            N.fetch_add(1, Ordering::Relaxed)
+        ));
         fs::create_dir_all(&dir).unwrap();
         let path = dir.join("update");
         fs::write(&path, format!("#!/bin/sh\n{body}")).unwrap();
@@ -121,9 +125,16 @@ mod tests {
     #[test]
     fn a_slow_script_is_stopped_with_its_children() {
         let start = Instant::now();
-        let (_, r) = build(&script("sleep 30 &\nsleep 30\n"), Duration::from_millis(100));
+        let (_, r) = build(
+            &script("sleep 30 &\nsleep 30\n"),
+            Duration::from_millis(100),
+        );
         assert!(r.unwrap_err().contains("timed out"));
-        assert!(start.elapsed() < Duration::from_secs(10), "waited for the children: {:?}", start.elapsed());
+        assert!(
+            start.elapsed() < Duration::from_secs(10),
+            "waited for the children: {:?}",
+            start.elapsed()
+        );
     }
 
     #[test]

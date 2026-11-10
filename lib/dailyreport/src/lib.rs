@@ -32,7 +32,13 @@ pub struct Event {
 /// since the last report, `paused` says whether alarms are switched off,
 /// `w` is today's forecast, `None` if it is not known, and `events` are the
 /// events of the day in the calendar.
-pub fn compose(now: DateTime<Local>, alarms: &[DateTime<Local>], paused: bool, w: Option<Weather>, events: &[Event]) -> String {
+pub fn compose(
+    now: DateTime<Local>,
+    alarms: &[DateTime<Local>],
+    paused: bool,
+    w: Option<Weather>,
+    events: &[Event],
+) -> String {
     let mut b = String::from("i'm alive, tonight ");
     match alarms {
         [] => b.push_str("there have been no alarms or movement"),
@@ -40,7 +46,12 @@ pub fn compose(now: DateTime<Local>, alarms: &[DateTime<Local>], paused: bool, w
             let _ = write!(b, "there has been 1 alarm, at {}", only.format("%H:%M"));
         }
         [.., last] => {
-            let _ = write!(b, "there have been {} alarms, the last at {}", alarms.len(), last.format("%H:%M"));
+            let _ = write!(
+                b,
+                "there have been {} alarms, the last at {}",
+                alarms.len(),
+                last.format("%H:%M")
+            );
         }
     }
     if paused {
@@ -71,12 +82,27 @@ fn push_weather(b: &mut String, now: DateTime<Local>, w: Weather) {
     b.push_str(" Today ");
     let temp = format!("{:.0}°C to {:.0}°C", w.min_c, w.max_c);
     let _ = match (w.sunny, w.max_c) {
-        (true, max) if max >= 30.0 => write!(b, "it's gonna be a great day, but hot ({temp}): bring water and sunscreen."),
-        (true, max) if max < 10.0 => write!(b, "it's gonna be a great day, but cold ({temp}): dress warm."),
+        (true, max) if max >= 30.0 => write!(
+            b,
+            "it's gonna be a great day, but hot ({temp}): bring water and sunscreen."
+        ),
+        (true, max) if max < 10.0 => write!(
+            b,
+            "it's gonna be a great day, but cold ({temp}): dress warm."
+        ),
         (true, _) => write!(b, "it's gonna be a great day ({temp})."),
-        (false, max) if max < 10.0 => write!(b, "you should find something to do at home, it's cold and not sunny ({temp})."),
-        (false, max) if max >= 30.0 => write!(b, "you should find something to do at home, somewhere cool: it's hot and not sunny ({temp})."),
-        (false, _) => write!(b, "you should find something to do at home, it's not going to be sunny ({temp})."),
+        (false, max) if max < 10.0 => write!(
+            b,
+            "you should find something to do at home, it's cold and not sunny ({temp})."
+        ),
+        (false, max) if max >= 30.0 => write!(
+            b,
+            "you should find something to do at home, somewhere cool: it's hot and not sunny ({temp})."
+        ),
+        (false, _) => write!(
+            b,
+            "you should find something to do at home, it's not going to be sunny ({temp})."
+        ),
     };
     if w.sunny && now.weekday() == Weekday::Sun {
         b.push_str(" sunny sunday would make a great hike!");
@@ -101,14 +127,22 @@ pub fn fetch_weather(api: &str, lat: f64, lon: f64, timeout: Duration) -> Result
         .get(api)
         .query("latitude", &lat.to_string())
         .query("longitude", &lon.to_string())
-        .query("daily", "weather_code,temperature_2m_max,temperature_2m_min")
+        .query(
+            "daily",
+            "weather_code,temperature_2m_max,temperature_2m_min",
+        )
         .query("forecast_days", "1")
         .query("timezone", "auto")
         .call()
     {
         Ok(r) => r,
         Err(ureq::Error::Status(code, r)) => {
-            let body: String = r.into_string().unwrap_or_default().chars().take(256).collect();
+            let body: String = r
+                .into_string()
+                .unwrap_or_default()
+                .chars()
+                .take(256)
+                .collect();
             return Err(format!("weather: status {code}: {body}"));
         }
         Err(e) => return Err(format!("weather: {e}")),
@@ -129,8 +163,16 @@ pub fn fetch_weather(api: &str, lat: f64, lon: f64, timeout: Duration) -> Result
     }
     let data: Data = resp.into_json().map_err(|e| format!("weather: {e}"))?;
     let d = data.daily;
-    match (d.weather_code.first(), d.temperature_2m_max.first(), d.temperature_2m_min.first()) {
-        (Some(&code), Some(&max_c), Some(&min_c)) => Ok(Weather { sunny: sunny(code), max_c, min_c }),
+    match (
+        d.weather_code.first(),
+        d.temperature_2m_max.first(),
+        d.temperature_2m_min.first(),
+    ) {
+        (Some(&code), Some(&max_c), Some(&min_c)) => Ok(Weather {
+            sunny: sunny(code),
+            max_c,
+            min_c,
+        }),
         _ => Err("weather: no forecast for today".into()),
     }
 }
@@ -143,10 +185,19 @@ pub const CALENDAR_API: &str = "https://parrocchiasandonato.vercel.app/api/event
 pub fn fetch_events(api: &str, day: NaiveDate, timeout: Duration) -> Result<Vec<Event>, String> {
     let api = if api.is_empty() { CALENDAR_API } else { api };
     let agent = ureq::AgentBuilder::new().timeout(timeout).build();
-    let resp = match agent.get(api).query("date", &day.format("%Y-%m-%d").to_string()).call() {
+    let resp = match agent
+        .get(api)
+        .query("date", &day.format("%Y-%m-%d").to_string())
+        .call()
+    {
         Ok(r) => r,
         Err(ureq::Error::Status(code, r)) => {
-            let body: String = r.into_string().unwrap_or_default().chars().take(256).collect();
+            let body: String = r
+                .into_string()
+                .unwrap_or_default()
+                .chars()
+                .take(256)
+                .collect();
             return Err(format!("calendar: status {code}: {body}"));
         }
         Err(e) => return Err(format!("calendar: {e}")),
@@ -166,7 +217,11 @@ pub fn fetch_events(api: &str, day: NaiveDate, timeout: Duration) -> Result<Vec<
     Ok(data
         .events
         .into_iter()
-        .map(|i| Event { title: i.title, time: i.time.unwrap_or_default(), location: i.location.unwrap_or_default() })
+        .map(|i| Event {
+            title: i.title,
+            time: i.time.unwrap_or_default(),
+            location: i.location.unwrap_or_default(),
+        })
         .collect())
 }
 
@@ -174,18 +229,28 @@ pub fn fetch_events(api: &str, day: NaiveDate, timeout: Duration) -> Result<Vec<
 /// change to summer time) gives the first moment after it.
 pub fn at_hour(day: NaiveDate, hour: u32) -> DateTime<Local> {
     for h in [hour, hour + 1, hour + 2] {
-        if let Some(t) = day.and_hms_opt(h % 24, 0, 0).and_then(|t| Local.from_local_datetime(&t).earliest()) {
+        if let Some(t) = day
+            .and_hms_opt(h % 24, 0, 0)
+            .and_then(|t| Local.from_local_datetime(&t).earliest())
+        {
             return t;
         }
     }
-    Local.from_utc_datetime(&day.and_hms_opt(hour % 24, 0, 0).expect("an hour of the day"))
+    Local.from_utc_datetime(
+        &day.and_hms_opt(hour % 24, 0, 0)
+            .expect("an hour of the day"),
+    )
 }
 
 /// The next time after `now` that the clock reads `hour`:00.
 pub fn next_run(now: DateTime<Local>, hour: u32) -> DateTime<Local> {
     let today = now.date_naive();
     let next = at_hour(today, hour);
-    if next > now { next } else { at_hour(today.checked_add_days(Days::new(1)).unwrap_or(today), hour) }
+    if next > now {
+        next
+    } else {
+        at_hour(today.checked_add_days(Days::new(1)).unwrap_or(today), hour)
+    }
 }
 
 /// Calls `send` every day at `hour`:00 local time until `stop` is set.
@@ -197,7 +262,9 @@ pub fn run(stop: &AtomicBool, hour: u32, send: impl Fn(DateTime<Local>)) {
                 return;
             }
             // short sleeps: the clock may change while waiting (summer time, a sync)
-            thread::sleep(Duration::from_millis(500).min((next - Local::now()).to_std().unwrap_or_default()));
+            thread::sleep(
+                Duration::from_millis(500).min((next - Local::now()).to_std().unwrap_or_default()),
+            );
         }
         send(next);
     }
@@ -215,7 +282,11 @@ mod tests {
     }
 
     fn w(sunny: bool, max_c: f64, min_c: f64) -> Option<Weather> {
-        Some(Weather { sunny, max_c, min_c })
+        Some(Weather {
+            sunny,
+            max_c,
+            min_c,
+        })
     }
 
     #[test]
@@ -234,34 +305,149 @@ mod tests {
             want: Vec<&'static str>,
             not_want: Vec<&'static str>,
         }
-        let case = |name, now, alarms, paused, weather, want, not_want| Case { name, now, alarms, paused, weather, events: vec![], want, not_want };
+        let case = |name, now, alarms, paused, weather, want, not_want| Case {
+            name,
+            now,
+            alarms,
+            paused,
+            weather,
+            events: vec![],
+            want,
+            not_want,
+        };
         let cases = vec![
-            case("quiet sunny sunday", sunday, vec![], false, w(true, 20.0, 10.0),
-                vec!["i'm alive, tonight there have been no alarms or movement.", "it's gonna be a great day", "sunny sunday would make a great hike!"], vec!["at home"]),
-            case("sunny monday", monday, vec![], false, w(true, 20.0, 10.0), vec!["great day"], vec!["hike"]),
-            case("rainy sunday", sunday, vec![], false, w(false, 15.0, 10.0), vec!["find something to do at home"], vec!["hike", "great day"]),
-            case("one alarm", monday, vec![at], false, None, vec!["1 alarm, at 03:15"], vec!["Today"]),
-            case("alarms", monday, vec![at, hour_later], false, None, vec!["2 alarms, the last at 04:15"], vec![]),
-            case("paused", monday, vec![], true, None, vec!["alarms are paused"], vec![]),
-            case("hot", monday, vec![], false, w(true, 33.0, 22.0), vec!["hot", "sunscreen"], vec![]),
-            case("hot and not sunny", monday, vec![], false, w(false, 33.0, 22.0), vec!["somewhere cool"], vec![]),
-            case("cold sunny", monday, vec![], false, w(true, 5.0, -2.0), vec!["dress warm", "-2°C to 5°C"], vec![]),
-            case("cold rainy", monday, vec![], false, w(false, 5.0, 1.0), vec!["at home", "cold"], vec![]),
+            case(
+                "quiet sunny sunday",
+                sunday,
+                vec![],
+                false,
+                w(true, 20.0, 10.0),
+                vec![
+                    "i'm alive, tonight there have been no alarms or movement.",
+                    "it's gonna be a great day",
+                    "sunny sunday would make a great hike!",
+                ],
+                vec!["at home"],
+            ),
+            case(
+                "sunny monday",
+                monday,
+                vec![],
+                false,
+                w(true, 20.0, 10.0),
+                vec!["great day"],
+                vec!["hike"],
+            ),
+            case(
+                "rainy sunday",
+                sunday,
+                vec![],
+                false,
+                w(false, 15.0, 10.0),
+                vec!["find something to do at home"],
+                vec!["hike", "great day"],
+            ),
+            case(
+                "one alarm",
+                monday,
+                vec![at],
+                false,
+                None,
+                vec!["1 alarm, at 03:15"],
+                vec!["Today"],
+            ),
+            case(
+                "alarms",
+                monday,
+                vec![at, hour_later],
+                false,
+                None,
+                vec!["2 alarms, the last at 04:15"],
+                vec![],
+            ),
+            case(
+                "paused",
+                monday,
+                vec![],
+                true,
+                None,
+                vec!["alarms are paused"],
+                vec![],
+            ),
+            case(
+                "hot",
+                monday,
+                vec![],
+                false,
+                w(true, 33.0, 22.0),
+                vec!["hot", "sunscreen"],
+                vec![],
+            ),
+            case(
+                "hot and not sunny",
+                monday,
+                vec![],
+                false,
+                w(false, 33.0, 22.0),
+                vec!["somewhere cool"],
+                vec![],
+            ),
+            case(
+                "cold sunny",
+                monday,
+                vec![],
+                false,
+                w(true, 5.0, -2.0),
+                vec!["dress warm", "-2°C to 5°C"],
+                vec![],
+            ),
+            case(
+                "cold rainy",
+                monday,
+                vec![],
+                false,
+                w(false, 5.0, 1.0),
+                vec!["at home", "cold"],
+                vec![],
+            ),
         ];
         let mut cases = cases;
-        let ev = |title: &str, time: &str, location: &str| Event { title: title.into(), time: time.into(), location: location.into() };
+        let ev = |title: &str, time: &str, location: &str| Event {
+            title: title.into(),
+            time: time.into(),
+            location: location.into(),
+        };
         cases.push(Case {
             events: vec![ev("Messa", "18:30", "Chiesa"), ev("Incontro giovani", "", ""), ev("Rosario", "21", "")],
             ..case("events", monday, vec![], false, w(true, 20.0, 10.0), vec!["great day (10°C to 20°C).\n\nToday in the calendar:\n- 18:30 Messa (Chiesa)\n- Incontro giovani\n- 21 Rosario"], vec![])
         });
-        cases.push(Case { events: vec![ev("Messa", "", "")], ..case("events without weather", monday, vec![], false, None, vec!["movement.\n\nToday in the calendar:\n- Messa"], vec!["Today it"]) });
+        cases.push(Case {
+            events: vec![ev("Messa", "", "")],
+            ..case(
+                "events without weather",
+                monday,
+                vec![],
+                false,
+                None,
+                vec!["movement.\n\nToday in the calendar:\n- Messa"],
+                vec!["Today it"],
+            )
+        });
         for c in cases {
             let got = compose(c.now, &c.alarms, c.paused, c.weather, &c.events);
             for want in c.want {
-                assert!(got.contains(want), "{}: message misses {want:?}:\n{got}", c.name);
+                assert!(
+                    got.contains(want),
+                    "{}: message misses {want:?}:\n{got}",
+                    c.name
+                );
             }
             for not in c.not_want {
-                assert!(!got.contains(not), "{}: message has {not:?}:\n{got}", c.name);
+                assert!(
+                    !got.contains(not),
+                    "{}: message has {not:?}:\n{got}",
+                    c.name
+                );
             }
         }
     }
@@ -289,8 +475,14 @@ mod tests {
                     }
                 }
                 let target = line.split_whitespace().nth(1).unwrap_or("");
-                log.lock().unwrap().push(target.split_once('?').map_or("", |(_, q)| q).to_owned());
-                let _ = write!(conn, "HTTP/1.1 {status} X\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}", body.len());
+                log.lock()
+                    .unwrap()
+                    .push(target.split_once('?').map_or("", |(_, q)| q).to_owned());
+                let _ = write!(
+                    conn,
+                    "HTTP/1.1 {status} X\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                    body.len()
+                );
             }
         });
         (url, seen)
@@ -304,24 +496,51 @@ mod tests {
 
     #[test]
     fn fetches_the_forecast() {
-        let (url, seen) = weather_server(200, r#"{"daily":{"weather_code":[1],"temperature_2m_max":[21.4],"temperature_2m_min":[9.8]}}"#);
+        let (url, seen) = weather_server(
+            200,
+            r#"{"daily":{"weather_code":[1],"temperature_2m_max":[21.4],"temperature_2m_min":[9.8]}}"#,
+        );
         let got = fetch_weather(&url, 45.5, 9.2, TIMEOUT).unwrap();
-        assert_eq!(got, Weather { sunny: true, max_c: 21.4, min_c: 9.8 });
+        assert_eq!(
+            got,
+            Weather {
+                sunny: true,
+                max_c: 21.4,
+                min_c: 9.8
+            }
+        );
         let seen = seen.lock().unwrap();
-        assert!(seen[0].contains("latitude=45.5") && seen[0].contains("longitude=9.2"), "{seen:?}");
+        assert!(
+            seen[0].contains("latitude=45.5") && seen[0].contains("longitude=9.2"),
+            "{seen:?}"
+        );
 
-        let (url, _) = weather_server(200, r#"{"daily":{"weather_code":[61],"temperature_2m_max":[12],"temperature_2m_min":[8]}}"#);
-        assert!(!fetch_weather(&url, 0.0, 0.0, TIMEOUT).unwrap().sunny, "rain");
+        let (url, _) = weather_server(
+            200,
+            r#"{"daily":{"weather_code":[61],"temperature_2m_max":[12],"temperature_2m_min":[8]}}"#,
+        );
+        assert!(
+            !fetch_weather(&url, 0.0, 0.0, TIMEOUT).unwrap().sunny,
+            "rain"
+        );
     }
 
     #[test]
     fn a_bad_forecast_is_an_error() {
         let (url, _) = weather_server(200, "{}");
-        assert!(fetch_weather(&url, 0.0, 0.0, TIMEOUT).unwrap_err().contains("no forecast"));
+        assert!(
+            fetch_weather(&url, 0.0, 0.0, TIMEOUT)
+                .unwrap_err()
+                .contains("no forecast")
+        );
         let (url, _) = weather_server(200, "not json");
         assert!(fetch_weather(&url, 0.0, 0.0, TIMEOUT).is_err());
         let (url, _) = weather_server(500, "no");
-        assert!(fetch_weather(&url, 0.0, 0.0, TIMEOUT).unwrap_err().contains("status 500"));
+        assert!(
+            fetch_weather(&url, 0.0, 0.0, TIMEOUT)
+                .unwrap_err()
+                .contains("status 500")
+        );
         assert!(fetch_weather("http://127.0.0.1:1", 0.0, 0.0, TIMEOUT).is_err());
     }
 
@@ -333,8 +552,15 @@ mod tests {
         );
         let day = NaiveDate::from_ymd_opt(2026, 11, 9).unwrap();
         let got = fetch_events(&url, day, TIMEOUT).unwrap();
-        let ev = |title: &str, time: &str, location: &str| Event { title: title.into(), time: time.into(), location: location.into() };
-        assert_eq!(got, [ev("Messa", "18:30", "Chiesa"), ev("Incontro", "", "")]);
+        let ev = |title: &str, time: &str, location: &str| Event {
+            title: title.into(),
+            time: time.into(),
+            location: location.into(),
+        };
+        assert_eq!(
+            got,
+            [ev("Messa", "18:30", "Chiesa"), ev("Incontro", "", "")]
+        );
         assert_eq!(*seen.lock().unwrap(), ["date=2026-11-09"]);
     }
 
@@ -354,7 +580,11 @@ mod tests {
         assert_eq!(next_run(d(30, 13, 0), 20), d(30, 20, 0), "before");
         assert_eq!(next_run(d(30, 20, 0), 20), d(31, 20, 0), "at the hour");
         assert_eq!(next_run(d(30, 21, 5), 20), d(31, 20, 0), "after");
-        assert_eq!(next_run(d(31, 23, 59), 9), local(2026, 11, 1, 9, 0), "next month");
+        assert_eq!(
+            next_run(d(31, 23, 59), 9),
+            local(2026, 11, 1, 9, 0),
+            "next month"
+        );
     }
 
     #[test]

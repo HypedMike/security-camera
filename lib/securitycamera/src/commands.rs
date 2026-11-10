@@ -193,7 +193,13 @@ impl Commands {
         if payload.is_empty() {
             return self.reply("edit_config", self.config_json());
         }
-        if let Err(e) = edit_config::apply(payload, &self.monitor, &self.stream, &self.live, &self.detectors) {
+        if let Err(e) = edit_config::apply(
+            payload,
+            &self.monitor,
+            &self.stream,
+            &self.live,
+            &self.detectors,
+        ) {
             return self.reply("edit_config", format!("Not changed: {e}"));
         }
         let current = Settings::current(&self.monitor, &self.stream, &self.live);
@@ -204,8 +210,22 @@ impl Commands {
     }
 
     fn reset_config(self: &Arc<Self>) {
-        match edit_config::reset(&self.settings_file, self.defaults.clone(), &self.monitor, &self.stream, &self.live, &self.detectors) {
-            Ok(()) => self.reply("reset_config", format!("Settings back to the defaults, {} deleted:\n{}", self.settings_file, self.config_json())),
+        match edit_config::reset(
+            &self.settings_file,
+            self.defaults.clone(),
+            &self.monitor,
+            &self.stream,
+            &self.live,
+            &self.detectors,
+        ) {
+            Ok(()) => self.reply(
+                "reset_config",
+                format!(
+                    "Settings back to the defaults, {} deleted:\n{}",
+                    self.settings_file,
+                    self.config_json()
+                ),
+            ),
             Err(e) => self.reply("reset_config", format!("Not reset: {e}")),
         }
     }
@@ -223,7 +243,11 @@ impl Commands {
     }
 
     fn send_hd(self: &Arc<Self>, gifs: &Store, code: &str) {
-        let result = gifs.get(code).and_then(|data| self.chat.send_animation(&data, &format!("GIF {}", code.to_lowercase())).map_err(|e| StoreError::Io(std::io::Error::other(e))));
+        let result = gifs.get(code).and_then(|data| {
+            self.chat
+                .send_animation(&data, &format!("GIF {}", code.to_lowercase()))
+                .map_err(|e| StoreError::Io(std::io::Error::other(e)))
+        });
         match result {
             Ok(()) => {}
             Err(StoreError::NotFound) => self.reply(
@@ -239,11 +263,18 @@ impl Commands {
 
     fn app(self: &Arc<Self>) {
         if self.mini_app_url.is_empty() {
-            return self.reply("app", "The mini app is off. Set MINI_APP_URL in .env to turn it on.");
+            return self.reply(
+                "app",
+                "The mini app is off. Set MINI_APP_URL in .env to turn it on.",
+            );
         }
         let me = self.clone();
         thread::spawn(move || {
-            if let Err(e) = me.chat.send_web_app_button("Live view and motion graph:", "Open the camera", &me.mini_app_url) {
+            if let Err(e) = me.chat.send_web_app_button(
+                "Live view and motion graph:",
+                "Open the camera",
+                &me.mini_app_url,
+            ) {
                 eprintln!("app: {e}");
                 me.reply("app", "Could not send the button: Telegram only allows mini app buttons in a private chat with the bot. Open the bot's private chat and use the Camera button next to the message box.");
             }
@@ -262,10 +293,15 @@ impl Commands {
             match result {
                 Err(e) => {
                     me.updating.store(false, Ordering::SeqCst);
-                    let _ = me.chat.send_message(&format!("Update failed, still running the old version:\n{}", update::tail(&format!("{out}\n{e}"), 3000)));
+                    let _ = me.chat.send_message(&format!(
+                        "Update failed, still running the old version:\n{}",
+                        update::tail(&format!("{out}\n{e}"), 3000)
+                    ));
                 }
                 Ok(()) => {
-                    let _ = me.chat.send_message(&format!("{}\nRestarting...", update::tail(&out, 3000)));
+                    let _ = me
+                        .chat
+                        .send_message(&format!("{}\nRestarting...", update::tail(&out, 3000)));
                     me.state.restart.store(true, Ordering::SeqCst);
                     me.shutdown.trigger();
                 }
@@ -301,7 +337,10 @@ mod tests {
         let monitor = Arc::new(Monitor::new(
             "",
             NAME_BACKGROUND,
-            &[(NAME_BACKGROUND, config::BACKGROUND_THRESHOLD), (NAME_DIFFERENCE, config::DIFFERENCE_THRESHOLD)],
+            &[
+                (NAME_BACKGROUND, config::BACKGROUND_THRESHOLD),
+                (NAME_DIFFERENCE, config::DIFFERENCE_THRESHOLD),
+            ],
             config::ALARM_COOLDOWN,
         ));
         monitor.set_detection_frames(config::DETECTION_FRAMES);
@@ -309,7 +348,12 @@ mod tests {
         let live = Arc::new(Live::new());
         let defaults = Settings::current(&monitor, &stream, &live);
         let gifs = with_store.then(|| Arc::new(Store::new(dir.join("gifs"), 1 << 20).unwrap()));
-        let alarms = Arc::new(Alarms { chat: chat.clone(), book: AlarmBook::new(), clips: ClipRecorder::new(), gifs });
+        let alarms = Arc::new(Alarms {
+            chat: chat.clone(),
+            book: AlarmBook::new(),
+            clips: ClipRecorder::new(),
+            gifs,
+        });
         let cmds = Commands::new(
             chat.clone(),
             monitor,
@@ -319,11 +363,20 @@ mod tests {
             defaults,
             alarms,
             mini_app,
-            Paths { settings_file: dir.join("settings.json").to_string_lossy().into_owned(), update_script: "/no/such/script".into(), update_timeout: Duration::from_secs(60) },
+            Paths {
+                settings_file: dir.join("settings.json").to_string_lossy().into_owned(),
+                update_script: "/no/such/script".into(),
+                update_timeout: Duration::from_secs(60),
+            },
             Arc::new(Shutdown::new()),
             Arc::new(State::default()),
         );
-        Fixture { cmds, rx, chat, dir }
+        Fixture {
+            cmds,
+            rx,
+            chat,
+            dir,
+        }
     }
 
     impl Fixture {
@@ -337,7 +390,10 @@ mod tests {
             }
         }
         fn silent(&self) {
-            assert!(self.rx.recv_timeout(Duration::from_millis(150)).is_err(), "unexpected reply");
+            assert!(
+                self.rx.recv_timeout(Duration::from_millis(150)).is_err(),
+                "unexpected reply"
+            );
         }
     }
 
@@ -365,7 +421,10 @@ mod tests {
         let f = fixture(false, "");
         f.say("/info");
         let r = f.reply();
-        assert!(r.contains("Security camera process") && r.contains("Camera\n  device: default"), "{r}");
+        assert!(
+            r.contains("Security camera process") && r.contains("Camera\n  device: default"),
+            "{r}"
+        );
     }
 
     #[test]
@@ -404,7 +463,11 @@ mod tests {
         f.say(r#"/edit_config {"snap_jpeg_quality": 40}"#);
         let r = f.reply();
         assert!(r.starts_with("Settings changed, but not saved"), "{r}");
-        assert_eq!(f.cmds.live.get().snap_jpeg_quality, 40, "it is changed all the same");
+        assert_eq!(
+            f.cmds.live.get().snap_jpeg_quality,
+            40,
+            "it is changed all the same"
+        );
     }
 
     #[test]
@@ -427,10 +490,16 @@ mod tests {
             f.say(name);
             assert_eq!(f.reply(), "No alarms yet.");
         }
-        f.cmds.alarms.book.begin(Local::now(), "background", 0.5, "abc123");
+        f.cmds
+            .alarms
+            .book
+            .begin(Local::now(), "background", 0.5, "abc123");
         f.say("/alarms");
         let r = f.reply();
-        assert!(r.starts_with("Latest 1 alarms") && r.contains("recording the GIF"), "{r}");
+        assert!(
+            r.starts_with("Latest 1 alarms") && r.contains("recording the GIF"),
+            "{r}"
+        );
     }
 
     #[test]
@@ -443,10 +512,19 @@ mod tests {
         let r = f.reply();
         assert!(r.contains("No GIF with code \"abc123\""), "{r}");
 
-        f.cmds.alarms.gifs.as_ref().unwrap().save("abc123", b"GIF89a-data").unwrap();
+        f.cmds
+            .alarms
+            .gifs
+            .as_ref()
+            .unwrap()
+            .save("abc123", b"GIF89a-data")
+            .unwrap();
         f.say("/hd ABC123");
         match f.rx.recv_timeout(WAIT).unwrap() {
-            Sent::Animation(data, caption) => assert_eq!((data.as_slice(), caption.as_str()), (&b"GIF89a-data"[..], "GIF abc123")),
+            Sent::Animation(data, caption) => assert_eq!(
+                (data.as_slice(), caption.as_str()),
+                (&b"GIF89a-data"[..], "GIF abc123")
+            ),
             other => panic!("{other:?}"),
         }
 
@@ -465,7 +543,13 @@ mod tests {
     #[test]
     fn hd_reports_a_failed_upload() {
         let f = fixture(true, "");
-        f.cmds.alarms.gifs.as_ref().unwrap().save("abc123", b"x").unwrap();
+        f.cmds
+            .alarms
+            .gifs
+            .as_ref()
+            .unwrap()
+            .save("abc123", b"x")
+            .unwrap();
         // the animation can't be sent but texts can: a chat that only fails uploads
         struct NoUploads(Arc<FakeChat>);
         impl Chat for NoUploads {
@@ -496,7 +580,10 @@ mod tests {
         cmds.handle(&Message::new("/hd abc123"));
         assert_eq!(text(&rx), "Could not send the HD GIF.");
         cmds.handle(&Message::new("/app"));
-        assert_eq!(text(&rx), "The mini app is off. Set MINI_APP_URL in .env to turn it on.");
+        assert_eq!(
+            text(&rx),
+            "The mini app is off. Set MINI_APP_URL in .env to turn it on."
+        );
     }
 
     #[test]
@@ -508,7 +595,11 @@ mod tests {
         f.say("/app");
         assert_eq!(
             f.rx.recv_timeout(WAIT).unwrap(),
-            Sent::Button("Live view and motion graph:".into(), "Open the camera".into(), "https://cam.ts.net".into())
+            Sent::Button(
+                "Live view and motion graph:".into(),
+                "Open the camera".into(),
+                "https://cam.ts.net".into()
+            )
         );
         *crate::util::lock(&f.chat.fail) = true;
         f.say("/app");
@@ -531,7 +622,10 @@ mod tests {
         f.say("/update");
         assert_eq!(f.reply(), "Updating...");
         let r = f.reply();
-        assert!(r.starts_with("Update failed, still running the old version:\ncompiling\nerror: nope"), "{r}");
+        assert!(
+            r.starts_with("Update failed, still running the old version:\ncompiling\nerror: nope"),
+            "{r}"
+        );
         assert!(!f.cmds.state.restart.load(Ordering::SeqCst));
         assert!(!f.cmds.shutdown.is_set());
         // it can be tried again
@@ -546,7 +640,9 @@ mod tests {
         Arc::get_mut(&mut f.cmds).unwrap().update_script = script;
         let woken = Arc::new(AtomicBool::new(false));
         let w = woken.clone();
-        f.cmds.shutdown.on_trigger(move || w.store(true, Ordering::SeqCst));
+        f.cmds
+            .shutdown
+            .on_trigger(move || w.store(true, Ordering::SeqCst));
         f.say("/update");
         assert_eq!(f.reply(), "Updating...");
         assert_eq!(f.reply(), "updated a -> b\nRestarting...");

@@ -96,8 +96,14 @@ mod tests {
 
     #[test]
     fn rounds_to_the_second() {
-        assert_eq!(round_secs(Duration::from_millis(1499)), Duration::from_secs(1));
-        assert_eq!(round_secs(Duration::from_millis(1500)), Duration::from_secs(2));
+        assert_eq!(
+            round_secs(Duration::from_millis(1499)),
+            Duration::from_secs(1)
+        );
+        assert_eq!(
+            round_secs(Duration::from_millis(1500)),
+            Duration::from_secs(2)
+        );
     }
 
     #[test]

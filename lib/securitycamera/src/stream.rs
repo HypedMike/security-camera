@@ -51,7 +51,10 @@ pub struct Stream {
 impl Stream {
     /// `history` is how many past frames are passed to handlers. 0 disables it.
     pub fn new(history: usize) -> Stream {
-        Stream { handlers: Mutex::new(Vec::new()), ring: Mutex::new(Ring::new(history)) }
+        Stream {
+            handlers: Mutex::new(Vec::new()),
+            ring: Mutex::new(Ring::new(history)),
+        }
     }
 
     /// Registers a handler.
@@ -80,16 +83,30 @@ impl Stream {
         let mut frame = Frame::default();
         while !stop.load(Ordering::SeqCst) {
             if let Err(e) = source.read(&mut frame) {
-                return if stop.load(Ordering::SeqCst) { Ok(()) } else { Err(e) };
+                return if stop.load(Ordering::SeqCst) {
+                    Ok(())
+                } else {
+                    Err(e)
+                };
             }
             let (wall, mono) = (Local::now(), Instant::now());
             let mut ring = lock(&self.ring);
             for h in lock(&self.handlers).iter_mut() {
-                h(&Tick { frame: &frame, history: &ring, wall, mono });
+                h(&Tick {
+                    frame: &frame,
+                    history: &ring,
+                    wall,
+                    mono,
+                });
             }
             let (width, height) = (frame.width as usize, frame.height as usize);
             if width > 0 && height > 0 && frame.pixels.len() >= width * height * 4 {
-                ring.remember(&Image::Rgba { data: &frame.pixels, width, height, stride: width * 4 });
+                ring.remember(&Image::Rgba {
+                    data: &frame.pixels,
+                    width,
+                    height,
+                    stride: width * 4,
+                });
             }
         }
         Ok(())
@@ -111,7 +128,11 @@ mod tests {
         fn read(&mut self, frame: &mut Frame) -> Result<(), String> {
             match self.values.pop_front() {
                 Some(v) => {
-                    *frame = Frame { width: 1, height: 1, pixels: vec![v, 0, 0, 255] };
+                    *frame = Frame {
+                        width: 1,
+                        height: 1,
+                        pixels: vec![v, 0, 0, 255],
+                    };
                     Ok(())
                 }
                 None => {
@@ -123,7 +144,10 @@ mod tests {
     }
 
     fn fake(values: &[u8]) -> Fake {
-        Fake { values: values.iter().copied().collect(), on_empty: Box::new(|| {}) }
+        Fake {
+            values: values.iter().copied().collect(),
+            on_empty: Box::new(|| {}),
+        }
     }
 
     #[test]
@@ -133,11 +157,17 @@ mod tests {
         for name in ["first", "second"] {
             let seen = seen.clone();
             stream.add_handler(move |t| {
-                let history: Vec<u8> = (0..t.history.len()).map(|i| t.history.frame(i).unwrap().0[0]).collect();
-                seen.lock().unwrap().push((name, t.frame.pixels[0], history));
+                let history: Vec<u8> = (0..t.history.len())
+                    .map(|i| t.history.frame(i).unwrap().0[0])
+                    .collect();
+                seen.lock()
+                    .unwrap()
+                    .push((name, t.frame.pixels[0], history));
             });
         }
-        let err = stream.run(&mut fake(&[1, 2, 3]), &AtomicBool::new(false)).unwrap_err();
+        let err = stream
+            .run(&mut fake(&[1, 2, 3]), &AtomicBool::new(false))
+            .unwrap_err();
         assert_eq!(err, "camera gone");
         let want: Vec<(&str, u8, Vec<u8>)> = vec![
             ("first", 1, vec![]),

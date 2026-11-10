@@ -31,7 +31,11 @@ fn parse_query(s: &str) -> HashMap<String, String> {
 
 /// Joins the fields, but the skipped ones, sorted by name, as "key=value" lines.
 pub(crate) fn data_check_string(vals: &HashMap<String, String>, skip: &[&str]) -> String {
-    let mut lines: Vec<String> = vals.iter().filter(|(k, _)| !skip.contains(&k.as_str())).map(|(k, v)| format!("{k}={v}")).collect();
+    let mut lines: Vec<String> = vals
+        .iter()
+        .filter(|(k, _)| !skip.contains(&k.as_str()))
+        .map(|(k, v)| format!("{k}={v}"))
+        .collect();
     lines.sort();
     lines.join("\n")
 }
@@ -44,27 +48,42 @@ pub(crate) fn data_check_string(vals: &HashMap<String, String>, skip: &[&str]) -
 /// signature is HMAC-SHA256 over the fields (except hash) sorted by name, as
 /// "key=value" lines. initData older than `max_age` is refused, so a leaked
 /// one stops working.
-pub fn validate(init_data: &str, bot_token: &str, now: DateTime<Local>, max_age: Duration) -> Result<i64, Unauthorized> {
+pub fn validate(
+    init_data: &str,
+    bot_token: &str,
+    now: DateTime<Local>,
+    max_age: Duration,
+) -> Result<i64, Unauthorized> {
     let vals = parse_query(init_data);
-    let hash = vals.get("hash").and_then(|h| hex::decode(h).ok()).filter(|h| h.len() == 32).ok_or(Unauthorized)?;
+    let hash = vals
+        .get("hash")
+        .and_then(|h| hex::decode(h).ok())
+        .filter(|h| h.len() == 32)
+        .ok_or(Unauthorized)?;
 
     let secret = hmac_sha256(b"WebAppData", bot_token.as_bytes());
     // newer clients add a "signature" field meant for third-party checks;
     // whether the bot-token signature covers it is not something to guess
     // at, and accepting either is as safe: the HMAC still has to match
-    let signed = [&["hash"][..], &["hash", "signature"][..]].iter().any(|skip| {
-        let mut m = HmacSha256::new_from_slice(&secret).expect("HMAC takes keys of any size");
-        m.update(data_check_string(&vals, skip).as_bytes());
-        m.verify_slice(&hash).is_ok() // compares in constant time
-    });
+    let signed = [&["hash"][..], &["hash", "signature"][..]]
+        .iter()
+        .any(|skip| {
+            let mut m = HmacSha256::new_from_slice(&secret).expect("HMAC takes keys of any size");
+            m.update(data_check_string(&vals, skip).as_bytes());
+            m.verify_slice(&hash).is_ok() // compares in constant time
+        });
     if !signed {
         return Err(Unauthorized);
     }
 
-    let secs: i64 = vals.get("auth_date").and_then(|s| s.parse().ok()).ok_or(Unauthorized)?;
+    let secs: i64 = vals
+        .get("auth_date")
+        .and_then(|s| s.parse().ok())
+        .ok_or(Unauthorized)?;
     let made = DateTime::from_timestamp(secs, 0).ok_or(Unauthorized)?;
     let age = now.signed_duration_since(made);
-    if age > TimeDelta::from_std(max_age).map_err(|_| Unauthorized)? || age < -TimeDelta::minutes(5) {
+    if age > TimeDelta::from_std(max_age).map_err(|_| Unauthorized)? || age < -TimeDelta::minutes(5)
+    {
         return Err(Unauthorized);
     }
 
@@ -72,7 +91,8 @@ pub fn validate(init_data: &str, bot_token: &str, now: DateTime<Local>, max_age:
     struct User {
         id: i64,
     }
-    let user: User = serde_json::from_str(vals.get("user").map_or("", String::as_str)).map_err(|_| Unauthorized)?;
+    let user: User = serde_json::from_str(vals.get("user").map_or("", String::as_str))
+        .map_err(|_| Unauthorized)?;
     if user.id == 0 {
         return Err(Unauthorized);
     }
@@ -86,17 +106,29 @@ pub(crate) mod tests {
     pub const TOKEN: &str = "123:ABC";
 
     /// Builds initData the way Telegram does, for a user and an age.
-    pub fn signed(bot_token: &str, user_id: i64, age: TimeDelta, now: DateTime<Local>, extra: &[(&str, &str)]) -> String {
+    pub fn signed(
+        bot_token: &str,
+        user_id: i64,
+        age: TimeDelta,
+        now: DateTime<Local>,
+        extra: &[(&str, &str)],
+    ) -> String {
         let mut vals: HashMap<String, String> = HashMap::from([
             ("auth_date".into(), (now - age).timestamp().to_string()),
-            ("user".into(), format!(r#"{{"id":{user_id},"first_name":"A"}}"#)),
+            (
+                "user".into(),
+                format!(r#"{{"id":{user_id},"first_name":"A"}}"#),
+            ),
             ("query_id".into(), "AAH".into()),
         ]);
         for (k, v) in extra {
             vals.insert((*k).into(), (*v).into());
         }
         let secret = hmac_sha256(b"WebAppData", bot_token.as_bytes());
-        let hash = hex::encode(hmac_sha256(&secret, data_check_string(&vals, &["hash"]).as_bytes()));
+        let hash = hex::encode(hmac_sha256(
+            &secret,
+            data_check_string(&vals, &["hash"]).as_bytes(),
+        ));
         let mut q = url::form_urlencoded::Serializer::new(String::new());
         for (k, v) in &vals {
             q.append_pair(k, v);
@@ -112,7 +144,13 @@ pub(crate) mod tests {
         let good = signed(TOKEN, 42, TimeDelta::minutes(1), now, &[]);
         assert_eq!(validate(&good, TOKEN, now, hour), Ok(42));
         // a newer client adds a signature field the check may or may not cover
-        let with_sig = signed(TOKEN, 42, TimeDelta::minutes(1), now, &[("signature", "abc")]);
+        let with_sig = signed(
+            TOKEN,
+            42,
+            TimeDelta::minutes(1),
+            now,
+            &[("signature", "abc")],
+        );
         assert_eq!(validate(&with_sig, TOKEN, now, hour), Ok(42));
     }
 
@@ -122,9 +160,15 @@ pub(crate) mod tests {
         let hour = Duration::from_secs(3600);
         let good = signed(TOKEN, 42, TimeDelta::minutes(1), now, &[]);
         let cases = [
-            ("wrong token", signed("999:XYZ", 42, TimeDelta::minutes(1), now, &[])),
+            (
+                "wrong token",
+                signed("999:XYZ", 42, TimeDelta::minutes(1), now, &[]),
+            ),
             ("expired", signed(TOKEN, 42, TimeDelta::hours(2), now, &[])),
-            ("from future", signed(TOKEN, 42, -TimeDelta::hours(1), now, &[])),
+            (
+                "from future",
+                signed(TOKEN, 42, -TimeDelta::hours(1), now, &[]),
+            ),
             ("other user", good.replace("%22id%22%3A42", "%22id%22%3A43")),
             ("no hash", good.split("&hash=").next().unwrap().to_owned()),
             ("empty", String::new()),
@@ -134,9 +178,15 @@ pub(crate) mod tests {
             ("no user", signed(TOKEN, 0, TimeDelta::minutes(1), now, &[])),
         ];
         for (name, data) in cases {
-            assert!(validate(&data, TOKEN, now, hour).is_err(), "{name} accepted");
+            assert!(
+                validate(&data, TOKEN, now, hour).is_err(),
+                "{name} accepted"
+            );
         }
-        assert_ne!(good, "", "the signed data of the 'other user' case really differs");
+        assert_ne!(
+            good, "",
+            "the signed data of the 'other user' case really differs"
+        );
     }
 
     #[test]

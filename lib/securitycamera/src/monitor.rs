@@ -43,7 +43,12 @@ impl Monitor {
     /// camera); `detector` is the name of the motion detector in use and
     /// `thresholds` the alarm threshold of each detector to start with; they
     /// and the cooldown are shown in the report.
-    pub fn new(camera: &str, detector: &str, thresholds: &[(&str, f64)], cooldown: Duration) -> Monitor {
+    pub fn new(
+        camera: &str,
+        detector: &str,
+        thresholds: &[(&str, f64)],
+        cooldown: Duration,
+    ) -> Monitor {
         Monitor {
             camera: camera.to_owned(),
             started: Instant::now(),
@@ -88,7 +93,11 @@ impl Monitor {
 
     /// The alarm threshold of the named detector.
     pub fn threshold_of(&self, detector: &str) -> f64 {
-        lock(&self.detectors).thresholds.get(detector).copied().unwrap_or(0.0)
+        lock(&self.detectors)
+            .thresholds
+            .get(detector)
+            .copied()
+            .unwrap_or(0.0)
     }
 
     /// Changes the alarm threshold of the detector in use.
@@ -99,7 +108,9 @@ impl Monitor {
     }
 
     pub fn set_threshold_of(&self, detector: &str, t: f64) {
-        lock(&self.detectors).thresholds.insert(detector.to_owned(), t);
+        lock(&self.detectors)
+            .thresholds
+            .insert(detector.to_owned(), t);
     }
 
     /// The minimum time between two alarms.
@@ -108,7 +119,8 @@ impl Monitor {
     }
 
     pub fn set_cooldown(&self, d: Duration) {
-        self.cooldown_ms.store(d.as_millis() as u64, Ordering::Relaxed);
+        self.cooldown_ms
+            .store(d.as_millis() as u64, Ordering::Relaxed);
     }
 
     pub fn set_paused(&self, paused: bool) {
@@ -132,14 +144,23 @@ impl Monitor {
         let mut t = lock(&self.times);
         t.last_alarm = Some(ts);
         t.history.push(ts);
-        let old = t.history.iter().take_while(|&&a| ts - a > HISTORY_KEPT).count();
+        let old = t
+            .history
+            .iter()
+            .take_while(|&&a| ts - a > HISTORY_KEPT)
+            .count();
         t.history.drain(..old);
     }
 
     /// The times of the alarms raised after `t`, oldest first. Only the last
     /// 48 hours are remembered.
     pub fn alarms_since(&self, t: DateTime<Local>) -> Vec<DateTime<Local>> {
-        lock(&self.times).history.iter().copied().filter(|&a| a > t).collect()
+        lock(&self.times)
+            .history
+            .iter()
+            .copied()
+            .filter(|&a| a > t)
+            .collect()
     }
 
     /// When the last alarm was raised, `None` if none was.
@@ -149,10 +170,18 @@ impl Monitor {
 
     /// Describes what the camera part of the program has been doing.
     pub fn report(&self) -> String {
-        let camera = if self.camera.is_empty() { "default" } else { &self.camera };
+        let camera = if self.camera.is_empty() {
+            "default"
+        } else {
+            &self.camera
+        };
         let frames = self.frames.load(Ordering::Relaxed);
         let elapsed = self.started.elapsed().as_secs_f64();
-        let fps = if elapsed > 0.0 { frames as f64 / elapsed } else { 0.0 };
+        let fps = if elapsed > 0.0 {
+            frames as f64 / elapsed
+        } else {
+            0.0
+        };
         let state = if self.paused() { "paused" } else { "active" };
         let (last_frame, last_alarm) = {
             let t = lock(&self.times);
@@ -174,7 +203,10 @@ impl Monitor {
 fn ago(t: Option<DateTime<Local>>) -> String {
     match t {
         None => "never".into(),
-        Some(t) => format!("{} ago", go_duration(round_secs((Local::now() - t).to_std().unwrap_or_default()))),
+        Some(t) => format!(
+            "{} ago",
+            go_duration(round_secs((Local::now() - t).to_std().unwrap_or_default()))
+        ),
     }
 }
 
@@ -198,14 +230,31 @@ mod tests {
     fn counts_frames_and_alarms() {
         let m = monitor();
         assert!(m.last_alarm().is_none());
-        has(&m.report(), &["device: default", "frames: 0", "last frame: never", "last alarm: never"]);
+        has(
+            &m.report(),
+            &[
+                "device: default",
+                "frames: 0",
+                "last frame: never",
+                "last alarm: never",
+            ],
+        );
 
         let now = Local::now();
         m.frame(now);
         m.frame(now);
         m.alarm(now);
         assert_eq!(m.last_alarm(), Some(now));
-        has(&m.report(), &["frames: 2", "alarms sent: 1", "threshold: 0.05", "cooldown 30s", "last alarm: 0s ago"]);
+        has(
+            &m.report(),
+            &[
+                "frames: 2",
+                "alarms sent: 1",
+                "threshold: 0.05",
+                "cooldown 30s",
+                "last alarm: 0s ago",
+            ],
+        );
     }
 
     #[test]
@@ -244,7 +293,12 @@ mod tests {
 
     #[test]
     fn alarms_since_remembers_two_days() {
-        let m = Monitor::new("cam", "difference", &[("difference", 0.05)], Duration::from_secs(1));
+        let m = Monitor::new(
+            "cam",
+            "difference",
+            &[("difference", 0.05)],
+            Duration::from_secs(1),
+        );
         let now = Local::now();
         let h = TimeDelta::hours;
         for ago in [60, 30, 2, 0] {

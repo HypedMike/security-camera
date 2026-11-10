@@ -275,7 +275,12 @@ pub const PLAN9: [[u8; 3]; 256] = [
 #[derive(Clone, Copy)]
 pub enum Image<'a> {
     /// Packed 8-bit R, G, B, A (alpha ignored: camera frames are opaque).
-    Rgba { data: &'a [u8], width: usize, height: usize, stride: usize },
+    Rgba {
+        data: &'a [u8],
+        width: usize,
+        height: usize,
+        stride: usize,
+    },
     /// Planar Y, Cb, Cr. `xs` and `ys` are the log2 chroma subsampling
     /// factors (4:2:2 is xs=1, ys=0; 4:2:0 is xs=1, ys=1).
     YCbCr {
@@ -294,7 +299,9 @@ pub enum Image<'a> {
 impl Image<'_> {
     pub fn size(&self) -> (usize, usize) {
         match *self {
-            Image::Rgba { width, height, .. } | Image::YCbCr { width, height, .. } => (width, height),
+            Image::Rgba { width, height, .. } | Image::YCbCr { width, height, .. } => {
+                (width, height)
+            }
         }
     }
 
@@ -306,14 +313,20 @@ impl Image<'_> {
         match *self {
             Image::Rgba { data, stride, .. } => {
                 for y in 0..height {
-                    out[y * width * 4..][..width * 4].copy_from_slice(&data[y * stride..][..width * 4]);
+                    out[y * width * 4..][..width * 4]
+                        .copy_from_slice(&data[y * stride..][..width * 4]);
                 }
             }
             Image::YCbCr { .. } => {
                 for y in 0..height {
                     for x in 0..width {
                         let [r, g, b] = self.rgb16(x, y);
-                        out[(y * width + x) * 4..][..4].copy_from_slice(&[(r >> 8) as u8, (g >> 8) as u8, (b >> 8) as u8, 0xff]);
+                        out[(y * width + x) * 4..][..4].copy_from_slice(&[
+                            (r >> 8) as u8,
+                            (g >> 8) as u8,
+                            (b >> 8) as u8,
+                            0xff,
+                        ]);
                     }
                 }
             }
@@ -326,9 +339,22 @@ impl Image<'_> {
         match *self {
             Image::Rgba { data, stride, .. } => {
                 let p = &data[y * stride + x * 4..];
-                [p[0] as u32 * 0x101, p[1] as u32 * 0x101, p[2] as u32 * 0x101]
+                [
+                    p[0] as u32 * 0x101,
+                    p[1] as u32 * 0x101,
+                    p[2] as u32 * 0x101,
+                ]
             }
-            Image::YCbCr { y: yp, cb, cr, ystride, cstride, xs, ys, .. } => {
+            Image::YCbCr {
+                y: yp,
+                cb,
+                cr,
+                ystride,
+                cstride,
+                xs,
+                ys,
+                ..
+            } => {
                 let ci = (y >> ys) * cstride + (x >> xs);
                 ycbcr16(yp[y * ystride + x], cb[ci], cr[ci])
             }
@@ -343,7 +369,11 @@ fn ycbcr16(y: u8, cb: u8, cr: u8) -> [u32; 3] {
     let cb1 = cb as i32 - 128;
     let cr1 = cr as i32 - 128;
     let ch = |v: i32| -> u32 {
-        if (v as u32) & 0xff00_0000 == 0 { (v >> 8) as u32 } else { (!(v >> 31) & 0xffff) as u32 }
+        if (v as u32) & 0xff00_0000 == 0 {
+            (v >> 8) as u32
+        } else {
+            (!(v >> 31) & 0xffff) as u32
+        }
     };
     [
         ch(yy1 + 91881 * cr1),
@@ -362,7 +392,11 @@ pub struct RgbaImage {
 
 /// The factor `shrink` scales by and the size of the result.
 pub fn shrink_dims(width: usize, height: usize, target: usize) -> (usize, usize, usize) {
-    let f = if target > 0 { ((width + target - 1) / target).max(1) } else { 1 };
+    let f = if target > 0 {
+        ((width + target - 1) / target).max(1)
+    } else {
+        1
+    };
     (f, width / f, height / f)
 }
 
@@ -374,7 +408,11 @@ pub fn shrink(img: &Image, target: usize) -> RgbaImage {
     let (_, ow, oh) = shrink_dims(w, h, target);
     let mut pix = vec![0u8; ow * oh * 4];
     shrink_into(img, target, &mut pix);
-    RgbaImage { width: ow, height: oh, pix }
+    RgbaImage {
+        width: ow,
+        height: oh,
+        pix,
+    }
 }
 
 /// `shrink` into `out`, which holds `ow * oh * 4` bytes (see `shrink_dims`).
@@ -454,7 +492,9 @@ fn sq_diff(x: u32, y: u32) -> u32 {
 fn nearest(r: u32, g: u32, b: u32) -> usize {
     let mut best = (0usize, u32::MAX);
     for (i, p) in PLAN9.iter().enumerate() {
-        let sum = sq_diff(r, p[0] as u32 * 0x101) + sq_diff(g, p[1] as u32 * 0x101) + sq_diff(b, p[2] as u32 * 0x101);
+        let sum = sq_diff(r, p[0] as u32 * 0x101)
+            + sq_diff(g, p[1] as u32 * 0x101)
+            + sq_diff(b, p[2] as u32 * 0x101);
         if sum < best.1 {
             best = (i, sum);
             if sum == 0 {
@@ -475,7 +515,9 @@ fn quantize(img: &Image, out: &mut [u8]) {
                 let src = &data[y * stride..y * stride + w * 4];
                 let dst = &mut out[y * w..(y + 1) * w];
                 for (d, p) in dst.iter_mut().zip(src.chunks_exact(4)) {
-                    *d = lut[(p[0] as usize >> 3) << 10 | (p[1] as usize >> 3) << 5 | (p[2] as usize >> 3)];
+                    *d = lut[(p[0] as usize >> 3) << 10
+                        | (p[1] as usize >> 3) << 5
+                        | (p[2] as usize >> 3)];
                 }
             }
         }
@@ -494,8 +536,16 @@ fn quantize(img: &Image, out: &mut [u8]) {
 /// the same arithmetic as Go's `draw.FloydSteinberg`.
 fn dither(img: &Image, out: &mut [u8]) {
     let (w, h) = img.size();
-    let pal16: Vec<[i32; 3]> =
-        PLAN9.iter().map(|p| [p[0] as i32 * 0x101, p[1] as i32 * 0x101, p[2] as i32 * 0x101]).collect();
+    let pal16: Vec<[i32; 3]> = PLAN9
+        .iter()
+        .map(|p| {
+            [
+                p[0] as i32 * 0x101,
+                p[1] as i32 * 0x101,
+                p[2] as i32 * 0x101,
+            ]
+        })
+        .collect();
     let mut curr = vec![[0i32; 3]; w + 2];
     let mut next = vec![[0i32; 3]; w + 2];
     for y in 0..h {
@@ -555,12 +605,24 @@ impl Encoder {
         out.extend_from_slice(&[0x21, 0xff, 0x0b]);
         out.extend_from_slice(b"NETSCAPE2.0");
         out.extend_from_slice(&[3, 1, 0, 0, 0]);
-        Encoder { width, height, delay, dither, out, indices: vec![0; width * height], frames: 0 }
+        Encoder {
+            width,
+            height,
+            delay,
+            dither,
+            out,
+            indices: vec![0; width * height],
+            frames: 0,
+        }
     }
 
     /// Adds a frame, which must be `width` x `height`.
     pub fn add(&mut self, img: &Image) {
-        assert_eq!(img.size(), (self.width, self.height), "gif: frames differ in size");
+        assert_eq!(
+            img.size(),
+            (self.width, self.height),
+            "gif: frames differ in size"
+        );
         if self.dither {
             dither(img, &mut self.indices);
         } else {

@@ -63,7 +63,16 @@ impl Watcher {
     pub fn new(mut limits: Limits) -> Watcher {
         limits.cpu_checks = limits.cpu_checks.max(1);
         limits.offline_checks = limits.offline_checks.max(1);
-        Watcher { limits, disk: false, cpu: false, temp: false, cpu_high: 0, failures: 0, first_failure: Local::now(), offline: false }
+        Watcher {
+            limits,
+            disk: false,
+            cpu: false,
+            temp: false,
+            cpu_high: 0,
+            failures: 0,
+            first_failure: Local::now(),
+            offline: false,
+        }
     }
 
     /// Takes the reading made at `now` and returns the messages to send. A
@@ -78,7 +87,10 @@ impl Watcher {
                 &mut self.disk,
                 disk,
                 l.disk_percent,
-                format!("Disk almost full: {disk:.0}% used (alert from {:.0}%)", l.disk_percent),
+                format!(
+                    "Disk almost full: {disk:.0}% used (alert from {:.0}%)",
+                    l.disk_percent
+                ),
                 format!("Disk back to normal: {disk:.0}% used"),
             ));
         }
@@ -91,7 +103,10 @@ impl Watcher {
             }
             if !self.cpu && self.cpu_high >= l.cpu_checks {
                 self.cpu = true;
-                out.push(format!("CPU busy: {cpu:.0}% for {} checks in a row (alert from {:.0}%)", self.cpu_high, l.cpu_percent));
+                out.push(format!(
+                    "CPU busy: {cpu:.0}% for {} checks in a row (alert from {:.0}%)",
+                    self.cpu_high, l.cpu_percent
+                ));
             } else if self.cpu && cpu < l.cpu_percent - HYSTERESIS {
                 self.cpu = false;
                 out.push(format!("CPU back to normal: {cpu:.0}%"));
@@ -103,7 +118,10 @@ impl Watcher {
                 &mut self.temp,
                 temp,
                 l.temp_c,
-                format!("Temperature high: {temp:.0}°C (alert from {:.0}°C)", l.temp_c),
+                format!(
+                    "Temperature high: {temp:.0}°C (alert from {:.0}°C)",
+                    l.temp_c
+                ),
                 format!("Temperature back to normal: {temp:.0}°C"),
             ));
         }
@@ -111,7 +129,11 @@ impl Watcher {
         if r.online {
             if self.offline {
                 let lost = (now - self.first_failure).to_std().unwrap_or_default();
-                out.push(format!("Connection back after {} (lost at {})", go_duration(round_secs(lost)), self.first_failure.format("%H:%M")));
+                out.push(format!(
+                    "Connection back after {} (lost at {})",
+                    go_duration(round_secs(lost)),
+                    self.first_failure.format("%H:%M")
+                ));
             }
             self.failures = 0;
             self.offline = false;
@@ -146,7 +168,13 @@ fn step(on: &mut bool, v: f64, limit: f64, start: String, end: String) -> Option
 /// Checks the machine every `interval` until `stop` is set and sends what
 /// [`Watcher::update`] returns. A message that cannot be sent (the connection
 /// is down) is kept and tried again at the next check, in order.
-pub fn run(stop: &AtomicBool, interval: Duration, limits: Limits, check: impl Fn() -> Reading, send: impl Fn(&str) -> Result<(), String>) {
+pub fn run(
+    stop: &AtomicBool,
+    interval: Duration,
+    limits: Limits,
+    check: impl Fn() -> Reading,
+    send: impl Fn(&str) -> Result<(), String>,
+) {
     let mut w = Watcher::new(limits);
     let mut pending: VecDeque<String> = VecDeque::new();
     let mut next = Instant::now() + interval;
@@ -176,18 +204,32 @@ mod tests {
     use std::sync::atomic::AtomicUsize;
     use std::sync::{Arc, Mutex, mpsc};
 
-    const LIMITS: Limits = Limits { disk_percent: 90.0, cpu_percent: 90.0, cpu_checks: 3, temp_c: 80.0, offline_checks: 2 };
+    const LIMITS: Limits = Limits {
+        disk_percent: 90.0,
+        cpu_percent: 90.0,
+        cpu_checks: 3,
+        temp_c: 80.0,
+        offline_checks: 2,
+    };
 
     fn at(min: u32) -> DateTime<Local> {
         Local.with_ymd_and_hms(2026, 11, 3, 14, min, 0).unwrap()
     }
 
     fn ok() -> Reading {
-        Reading { disk: Some(50.0), cpu: Some(10.0), temp: Some(40.0), online: true }
+        Reading {
+            disk: Some(50.0),
+            cpu: Some(10.0),
+            temp: Some(40.0),
+            online: true,
+        }
     }
 
     fn want_one(got: Vec<String>, sub: &str) {
-        assert!(got.len() == 1 && got[0].contains(sub), "got {got:?}, want one message with {sub:?}");
+        assert!(
+            got.len() == 1 && got[0].contains(sub),
+            "got {got:?}, want one message with {sub:?}"
+        );
     }
 
     #[test]
@@ -245,19 +287,28 @@ mod tests {
     #[test]
     fn a_lost_connection_is_told_when_it_is_back() {
         let mut w = Watcher::new(LIMITS);
-        let off = Reading { online: false, ..ok() };
+        let off = Reading {
+            online: false,
+            ..ok()
+        };
         for i in 0..5 {
             // nothing can be said while offline
             assert!(w.update(at(i), off).is_empty(), "offline check {i}");
         }
-        want_one(w.update(at(10), ok()), "Connection back after 10m0s (lost at 14:00)");
+        want_one(
+            w.update(at(10), ok()),
+            "Connection back after 10m0s (lost at 14:00)",
+        );
         assert!(w.update(at(11), ok()).is_empty(), "after recovery");
     }
 
     #[test]
     fn a_single_failed_check_is_a_hiccup() {
         let mut w = Watcher::new(LIMITS); // 2 failures needed
-        let off = Reading { online: false, ..ok() };
+        let off = Reading {
+            online: false,
+            ..ok()
+        };
         w.update(at(0), off);
         assert!(w.update(at(1), ok()).is_empty(), "single failure reported");
         w.update(at(2), off); // the count must have started again
@@ -267,16 +318,35 @@ mod tests {
     #[test]
     fn values_that_could_not_be_read_are_ignored() {
         let mut w = Watcher::new(LIMITS);
-        assert!(w.update(at(0), Reading { online: true, ..Reading::default() }).is_empty());
+        assert!(
+            w.update(
+                at(0),
+                Reading {
+                    online: true,
+                    ..Reading::default()
+                }
+            )
+            .is_empty()
+        );
     }
 
     #[test]
     fn limits_of_zero_checks_count_as_one() {
-        let mut w = Watcher::new(Limits { cpu_checks: 0, offline_checks: 0, ..LIMITS });
+        let mut w = Watcher::new(Limits {
+            cpu_checks: 0,
+            offline_checks: 0,
+            ..LIMITS
+        });
         let mut r = ok();
         r.cpu = Some(99.0);
         want_one(w.update(at(0), r), "CPU busy");
-        w.update(at(1), Reading { online: false, ..ok() });
+        w.update(
+            at(1),
+            Reading {
+                online: false,
+                ..ok()
+            },
+        );
         want_one(w.update(at(2), ok()), "Connection back");
     }
 
@@ -304,7 +374,9 @@ mod tests {
         };
         let stop2 = stop.clone();
         let t = thread::spawn(move || run(&stop2, Duration::from_millis(1), LIMITS, check, send));
-        let s = rx.recv_timeout(Duration::from_secs(5)).expect("message never sent");
+        let s = rx
+            .recv_timeout(Duration::from_secs(5))
+            .expect("message never sent");
         assert!(s.contains("Disk almost full"), "sent {s:?}");
         stop.store(true, Ordering::SeqCst);
         t.join().unwrap();
@@ -315,7 +387,11 @@ mod tests {
         let stop = Arc::new(AtomicBool::new(false));
         let sent = Arc::new(AtomicUsize::new(0));
         let n = sent.clone();
-        let check = || Reading { disk: Some(99.0), online: false, ..Reading::default() };
+        let check = || Reading {
+            disk: Some(99.0),
+            online: false,
+            ..Reading::default()
+        };
         let stop2 = stop.clone();
         let t = thread::spawn(move || {
             run(&stop2, Duration::from_millis(1), LIMITS, check, move |_| {
