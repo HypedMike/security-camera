@@ -860,6 +860,7 @@ name = "my_video"
 version = "0.1.0"
 dependencies = [
  "nokhwa",
+ "v4l",
 ]
 
 [[package]]

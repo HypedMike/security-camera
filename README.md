@@ -76,6 +76,7 @@ Settings live in `.env` (see [`.env.example`](.env.example)).
 | `BACKGROUND_THRESHOLD`    | no       | Blob area (0 to 1) at or above which the background detector alarms, default `0.003` |
 | `DIFFERENCE_THRESHOLD`    | no       | Frame difference (0 to 1) at or above which the difference detector alarms, default `0.05` (the old name `ALARM_THRESHOLD` still works) |
 | `CAMERA_ID`               | no       | Camera to use; chosen and saved on first run                        |
+| `CAMERA_LOCK_EXPOSURE`    | no       | `1`/`true` freezes auto exposure and auto white balance after startup (fewer lighting false alarms; Linux via V4L2, macOS untested) |
 | `LIVE_STREAM_GRAPH`       | no       | `1`/`true` serves the live graph on port 8080                       |
 | `PRINT_DIFFERENCES`       | no       | Print every frame's motion score to the console                     |
 | `PRINT_ALARMS`            | no       | Print a line to the console whenever an alarm is set off            |
