@@ -54,6 +54,11 @@ pub struct Config {
     pub height: u32,
     /// Frames read and thrown away on open, so auto-exposure can settle.
     pub warmup_frames: usize,
+    /// After the warm-up, freeze the exposure and the white balance at the
+    /// values the camera settled on, so the picture does not change
+    /// brightness or colour by itself. It is best effort: a camera that
+    /// doesn't allow it keeps working as it is.
+    pub lock_exposure: bool,
 }
 
 /// Opens the camera `first`. A camera often shows up as several video nodes of
@@ -62,8 +67,8 @@ pub struct Config {
 /// none opens, it returns the first error.
 pub fn open_any(cfg: &Config, first: &str) -> Result<Capture, String> {
     open_any_with(&devices(), first, |id| {
-        let (id, w, h) = (id.to_string(), cfg.width, cfg.height);
-        Capture::start(cfg.warmup_frames, move || camera::open(&id, w, h))
+        let (id, w, h, lock) = (id.to_string(), cfg.width, cfg.height, cfg.lock_exposure);
+        Capture::start(cfg.warmup_frames, lock, move || camera::open(&id, w, h))
     })
 }
 
@@ -109,6 +114,12 @@ pub struct Frame {
 pub trait Source {
     /// Waits for the next frame and writes it into `frame`.
     fn read(&mut self, frame: &mut Frame) -> Result<(), String>;
+
+    /// Freezes the exposure and the white balance at their current values and
+    /// says what was frozen. Called once, after the warm-up.
+    fn lock_exposure(&mut self) -> Result<String, String> {
+        Err("this camera can't do it".into())
+    }
 }
 
 struct Slot {
@@ -136,8 +147,9 @@ pub struct Capture {
 impl Capture {
     /// Runs `open` in a new thread, which keeps the camera from then on (some
     /// camera handles can't move between threads), reads and drops
-    /// `warmup_frames`, and returns once the first real frame can be read.
-    pub fn start<F>(warmup_frames: usize, open: F) -> Result<Capture, String>
+    /// `warmup_frames`, locks the exposure if `lock_exposure` is set, and
+    /// returns once the first real frame can be read.
+    pub fn start<F>(warmup_frames: usize, lock_exposure: bool, open: F) -> Result<Capture, String>
     where
         F: FnOnce() -> Result<Box<dyn Source>, String> + Send + 'static,
     {
@@ -153,7 +165,7 @@ impl Capture {
         let (opened_tx, opened_rx) = mpsc::channel();
         let thread = {
             let shared = shared.clone();
-            thread::spawn(move || run(&shared, warmup_frames, open, opened_tx))
+            thread::spawn(move || run(&shared, warmup_frames, lock_exposure, open, opened_tx))
         };
         let capture = Capture {
             shared,
@@ -211,8 +223,13 @@ impl Drop for Capture {
     }
 }
 
-fn run<F>(shared: &Shared, warmup: usize, open: F, opened: mpsc::Sender<Result<(), String>>)
-where
+fn run<F>(
+    shared: &Shared,
+    warmup: usize,
+    lock_exposure: bool,
+    open: F,
+    opened: mpsc::Sender<Result<(), String>>,
+) where
     F: FnOnce() -> Result<Box<dyn Source>, String>,
 {
     let fail = |e: String| {
@@ -232,6 +249,12 @@ where
         if let Err(e) = source.read(&mut frame) {
             let _ = opened.send(Err(e));
             return;
+        }
+    }
+    if lock_exposure {
+        match source.lock_exposure() {
+            Ok(what) => eprintln!("camera: {what}"),
+            Err(e) => eprintln!("camera: can't lock the exposure: {e}"),
         }
     }
     let _ = opened.send(Ok(()));
@@ -329,7 +352,7 @@ mod tests {
 
     #[test]
     fn warmup_frames_are_dropped() {
-        let c = Capture::start(5, counter(255, 1)).unwrap();
+        let c = Capture::start(5, false, counter(255, 1)).unwrap();
         let mut f = Frame::default();
         c.read(&mut f).unwrap();
         assert!(f.pixels[0] > 5, "got frame {}", f.pixels[0]);
@@ -338,7 +361,7 @@ mod tests {
 
     #[test]
     fn frames_come_in_order_without_repeats() {
-        let c = Capture::start(0, counter(255, 2)).unwrap();
+        let c = Capture::start(0, false, counter(255, 2)).unwrap();
         let mut f = Frame::default();
         let mut prev = 0;
         for _ in 0..10 {
@@ -350,15 +373,15 @@ mod tests {
 
     #[test]
     fn open_errors_are_returned() {
-        let r = Capture::start(0, || Err("no such camera".into()));
+        let r = Capture::start(0, false, || Err("no such camera".into()));
         assert_eq!(r.err().as_deref(), Some("no such camera"));
-        let r = Capture::start(3, counter(1, 0));
+        let r = Capture::start(3, false, counter(1, 0));
         assert_eq!(r.err().as_deref(), Some("unplugged"));
     }
 
     #[test]
     fn a_failing_camera_reports_why_after_the_last_frame() {
-        let c = Capture::start(0, counter(3, 0)).unwrap();
+        let c = Capture::start(0, false, counter(3, 0)).unwrap();
         let mut f = Frame::default();
         let err = loop {
             if let Err(e) = c.read(&mut f) {
@@ -370,7 +393,7 @@ mod tests {
 
     #[test]
     fn stop_wakes_a_reader() {
-        let c = Arc::new(Capture::start(0, counter(255, 500)).unwrap());
+        let c = Arc::new(Capture::start(0, false, counter(255, 500)).unwrap());
         let reader = {
             let c = c.clone();
             thread::spawn(move || c.read(&mut Frame::default()))
@@ -387,7 +410,7 @@ mod tests {
         let r = open_any_with(&d, "x2", |id| {
             tried.push(id.to_string());
             if id == "x1" {
-                Capture::start(0, counter(255, 1))
+                Capture::start(0, false, counter(255, 1))
             } else {
                 Err(format!("{id} is broken"))
             }

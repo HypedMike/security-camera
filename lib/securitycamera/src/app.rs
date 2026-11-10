@@ -140,6 +140,7 @@ pub fn run() -> Result<(), String> {
             width: 640,
             height: 480,
             warmup_frames: 30,
+            lock_exposure: env::bool("CAMERA_LOCK_EXPOSURE"),
         },
         &device_id,
     )?);
