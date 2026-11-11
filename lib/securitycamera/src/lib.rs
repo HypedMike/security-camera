@@ -4,6 +4,7 @@
 
 pub mod alarms;
 pub mod app;
+pub mod brightness;
 pub mod clips;
 pub mod commands;
 pub mod config;

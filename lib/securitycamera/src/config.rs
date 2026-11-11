@@ -110,6 +110,14 @@ pub const GRAPH_ADDR: &str = "0.0.0.0:8080";
 /// The JPEG quality of the /snap photos.
 pub const SNAP_JPEG_QUALITY: u8 = 85;
 
+/// The brightness of the picture, in percent: 100 leaves the camera as it is,
+/// less darkens it and more brightens it. The mini app changes it in
+/// BRIGHTNESS_STEP steps between BRIGHTNESS_MIN and BRIGHTNESS_MAX.
+pub const BRIGHTNESS: u32 = 100;
+pub const BRIGHTNESS_MIN: u32 = 20;
+pub const BRIGHTNESS_MAX: u32 = 400;
+pub const BRIGHTNESS_STEP: u32 = 10;
+
 /// The script /update runs to pull and rebuild the program.
 pub const UPDATE_SCRIPT: &str = "./update";
 
@@ -125,6 +133,7 @@ pub struct Values {
     pub hd_gif_width: usize,
     pub hd_gif_dither: bool,
     pub snap_jpeg_quality: u8,
+    pub brightness: u32,
 }
 
 impl Default for Values {
@@ -136,6 +145,7 @@ impl Default for Values {
             hd_gif_width: HD_GIF_WIDTH,
             hd_gif_dither: HD_GIF_DITHER,
             snap_jpeg_quality: SNAP_JPEG_QUALITY,
+            brightness: BRIGHTNESS,
         }
     }
 }
