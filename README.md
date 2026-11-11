@@ -24,13 +24,13 @@ It watches the camera, and when it sees motion above a threshold it sends a shor
   | `/update` | Pulls the latest code, rebuilds and restarts          |
   | `/pause`  | Stops sending alarms (the camera keeps running)       |
   | `/resume` | Starts sending alarms again                           |
-  | `/edit_config [json]` | Without arguments, sends all the settings as JSON (detector, thresholds, frame counts, cooldown, alarm GIF length, speed and quality, snapshot quality). Followed by that JSON, changes them and saves them in `settings.json`, so they survive a restart (`paused` is not saved); keys left out keep their value and nothing changes if any value is invalid |
+  | `/edit_config [json]` | Without arguments, sends all the settings as JSON (detector, thresholds, frame counts, cooldown, alarm GIF length, speed and quality, snapshot quality, brightness). Followed by that JSON, changes them and saves them in `settings.json`, so they survive a restart (`paused` is not saved); keys left out keep their value and nothing changes if any value is invalid |
   | `/reset_config` | Goes back to the default settings (constants and `.env`) and deletes `settings.json` |
 
 - **System alarms**: every minute the program checks the machine and warns on Telegram when the disk is 90% full or more, when the CPU stays at 90% or more for 5 minutes, when a temperature sensor reaches 80°C, and when the connection to Telegram is lost. Each problem is reported once when it starts and once when it is over. A lost connection can only be reported when it comes back ("Connection back after 12m0s (lost at 03:14)"), and a warning that cannot be sent is kept and sent as soon as the connection is back. The limits are in [`lib/securitycamera/src/config.rs`](lib/securitycamera/src/config.rs); values the machine cannot read (e.g. temperature on macOS) are skipped.
 - **Daily "i'm alive" message**: (code in [`lib/dailyreport/`](lib/dailyreport/)) every day at 9:00 (machine local time) the bot says it is running, how many alarms there were during the night, from 20:00 the evening before (or that there was no movement), and a suggestion based on today's forecast (for `WEATHER_LATITUDE`/`WEATHER_LONGITUDE`, Lucca if unset) and temperatures from [Open-Meteo](https://open-meteo.com/) (no key needed). On a sunny Sunday it adds a hike suggestion. It also lists the day's events from the parish calendar (public `GET /api/events` of [levele](https://parrocchiasandonato.vercel.app/calendario)); if the calendar can't be reached the message goes out without them.
 - **Live graph** (optional): a web page at `http://localhost:8080` plotting the motion score in real time, handy for tuning the threshold.
-- **Telegram mini app** (optional): a page inside Telegram, written in React ([`miniapp-web/`](miniapp-web/)), with the live camera view and the live motion graph. See [Mini app](#mini-app).
+- **Telegram mini app** (optional): a page inside Telegram, written in React ([`miniapp-web/`](miniapp-web/)), with the live camera view, the live motion graph and the brightness control. See [Mini app](#mini-app).
 - **Guided setup**: missing settings are asked for at startup and saved to `.env`; the camera is chosen interactively and remembered.
 
 ## Requirements
@@ -98,7 +98,9 @@ To tune one, turn on `LIVE_STREAM_GRAPH`, watch the graph with the room still an
 
 ## Mini app
 
-The mini app is a web page Telegram opens inside the chat: the live view of the camera (MJPEG, about 5 frames a second) and the motion score graph.
+The mini app is a web page Telegram opens inside the chat: the live view of the camera (MJPEG, about 5 frames a second), the motion score graph and a brightness control.
+
+The **brightness** control (− / + buttons and a slider, in steps of 10%) makes the picture darker or brighter: 100% is the camera as it is, from 20% to 400%. It is applied in software to every frame, so it works with any camera and shows in the live view, the snapshots, the alarm GIFs and the motion detection. Each change is saved in `settings.json` (the `brightness` setting, also changeable with `/edit_config`), so it survives a restart, and `/reset_config` puts it back to 100%.
 
 1. Make the program reachable over https. Telegram only opens https addresses, and the program only listens on `127.0.0.1:8081`, so nothing is exposed until you do this. With [Tailscale Funnel](https://tailscale.com/kb/1311/tailscale-funnel) (Tailscale installed, HTTPS and Funnel enabled for your tailnet):
 

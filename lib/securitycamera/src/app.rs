@@ -2,8 +2,8 @@
 //! app and the periodic jobs. [`run`] is the program.
 
 use std::io;
-use std::sync::Arc;
 use std::sync::atomic::Ordering;
+use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
 
@@ -12,6 +12,7 @@ use jpeg_encoder::{ColorType, Encoder};
 use my_video::{Device, Frame};
 
 use crate::alarms::{self, AlarmBook, Alarms};
+use crate::brightness::Brightened;
 use crate::clips::ClipRecorder;
 use crate::commands::{Commands, Paths, Shutdown, State};
 use crate::config::{self, Live};
@@ -28,7 +29,7 @@ use crate::sysinfo;
 use crate::syswatch::{self, Limits, Reading};
 use crate::telegram::{Bot, Chat};
 use crate::update;
-use crate::util::hostname;
+use crate::util::{hostname, lock};
 
 const USAGE: &str = "usage: securitycamera [-fetch-camera]\n  -fetch-camera  list the cameras again and choose one, even if one is already saved";
 
@@ -216,6 +217,7 @@ pub fn run() -> Result<(), String> {
 
     let stream = Arc::new(Stream::new(config::STREAM_HISTORY));
 
+    let mini_app = app.clone();
     if let Some(app) = app {
         // the camera frames for the mini app's video, only made while somebody watches
         let mut last: Option<Instant> = None;
@@ -258,6 +260,35 @@ pub fn run() -> Result<(), String> {
             if let Err(e) = chat.send_message(&problem) {
                 eprintln!("settings: {e}");
             }
+        });
+    }
+
+    // the mini app changes the brightness the way /edit_config does: the
+    // setting is applied and saved in settings.json
+    if let Some(app) = mini_app {
+        let (mon, stream, live, names) = (monitor.clone(), stream.clone(), live.clone(), names);
+        let (get_live, change) = (live.clone(), Mutex::new(()));
+        app.set_brightness(miniapp::Brightness {
+            get: Box::new(move || get_live.get().brightness),
+            set: Box::new(move |percent| {
+                // one change at a time: each one rewrites all the settings
+                let _one_at_a_time = lock(&change);
+                edit_config::apply(
+                    &format!(r#"{{"brightness": {percent}}}"#),
+                    &mon,
+                    &stream,
+                    &live,
+                    &names,
+                )?;
+                let current = Settings::current(&mon, &stream, &live);
+                edit_config::save(config::SETTINGS_FILE, &current).map_err(|e| {
+                    format!(
+                        "the brightness changed but is not saved ({}): {e}",
+                        config::SETTINGS_FILE
+                    )
+                })?;
+                Ok(live.get().brightness)
+            }),
         });
     }
 
@@ -411,7 +442,10 @@ pub fn run() -> Result<(), String> {
         });
     }
 
-    let mut source = capture;
+    let mut source = Brightened {
+        inner: capture,
+        live: live.clone(),
+    };
     let result = stream.run(&mut source, shutdown.flag());
     // release the camera, so a new process can open it
     drop(source);

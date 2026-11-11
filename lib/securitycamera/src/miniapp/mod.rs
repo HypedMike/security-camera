@@ -1,5 +1,5 @@
 //! A Telegram mini app: a web page that shows the live camera view and the
-//! live motion graph inside Telegram.
+//! live motion graph inside Telegram, and sets the brightness of the picture.
 //!
 //! The server only listens on the local machine; a tunnel (Tailscale Funnel)
 //! makes it reachable over HTTPS. Every request except the page itself has to
@@ -13,7 +13,7 @@ mod auth;
 use std::io::{self, Write};
 use std::net::TcpStream;
 use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::{Arc, Condvar, Mutex};
+use std::sync::{Arc, Condvar, Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
 use chrono::Local;
@@ -22,6 +22,7 @@ use include_dir::{Dir, include_dir};
 pub use access::{Access, Members};
 pub use auth::{Unauthorized, validate};
 
+use crate::config::{BRIGHTNESS_MAX, BRIGHTNESS_MIN, BRIGHTNESS_STEP};
 use crate::httpd::{self, Request, Response};
 use crate::livegraph::Graph;
 use crate::util::lock;
@@ -66,6 +67,16 @@ pub struct Options {
     pub events: Option<Arc<Graph>>,
 }
 
+/// How the mini app reads and changes the brightness of the picture. It is
+/// given to the server once the rest of the program is up ([`Server::set_brightness`]).
+pub struct Brightness {
+    /// The current brightness in percent.
+    pub get: Box<dyn Fn() -> u32 + Send + Sync>,
+    /// Changes it (and saves it) and returns the value now in use, or why it
+    /// can't be changed.
+    pub set: Box<dyn Fn(u32) -> Result<u32, String> + Send + Sync>,
+}
+
 /// The slot a video stream takes its next frame from: only the latest is kept.
 #[derive(Default)]
 struct Slot {
@@ -78,6 +89,7 @@ pub struct Server {
     opts: Options,
     viewers: AtomicUsize,
     subs: Mutex<Vec<Arc<Slot>>>,
+    brightness: OnceLock<Brightness>,
 }
 
 impl Server {
@@ -86,7 +98,14 @@ impl Server {
             opts,
             viewers: AtomicUsize::new(0),
             subs: Mutex::new(Vec::new()),
+            brightness: OnceLock::new(),
         })
+    }
+
+    /// Turns on the brightness control of the app. Without it the route is
+    /// not found and the app hides the control. Only the first call counts.
+    pub fn set_brightness(&self, b: Brightness) {
+        let _ = self.brightness.set(b);
     }
 
     /// Whether anybody is watching, so the camera loop can skip encoding
@@ -116,6 +135,9 @@ impl Server {
         match req.path.as_str() {
             "/api/check" => self.guard(req, |_| Response::no_content()),
             "/stream" => self.guard(req, |me| me.stream()),
+            "/api/brightness" if self.brightness.get().is_some() => {
+                self.guard(req, |me| me.brightness(req))
+            }
             "/events" if self.opts.events.is_some() => {
                 self.guard(req, |me| me.opts.events.as_ref().expect("checked").events())
             }
@@ -145,6 +167,30 @@ impl Server {
             Ok(id) if (self.opts.allowed)(id) => next(self).header("Cache-Control", "no-store"),
             _ => Response::text(401, "unauthorized"),
         }
+    }
+
+    /// GET shows the brightness, POST with `value` (percent) changes it.
+    fn brightness(&self, req: &Request) -> Response {
+        let b = self.brightness.get().expect("checked by the route");
+        let now = match req.method.as_str() {
+            "POST" => {
+                let Some(wanted) = req.param("value").and_then(|v| v.parse::<u32>().ok()) else {
+                    return Response::text(400, "value must be a whole number");
+                };
+                match (b.set)(wanted) {
+                    Ok(v) => v,
+                    Err(e) => return Response::text(400, &e),
+                }
+            }
+            _ => (b.get)(),
+        };
+        Response::new(
+            200,
+            "application/json",
+            format!(
+                r#"{{"value":{now},"min":{BRIGHTNESS_MIN},"max":{BRIGHTNESS_MAX},"step":{BRIGHTNESS_STEP}}}"#
+            ),
+        )
     }
 
     /// The camera as MJPEG: a never-ending multipart response whose parts are
@@ -307,6 +353,60 @@ mod tests {
             String::from_utf8_lossy(&text[..n]).starts_with("data: ["),
             "the graph's history comes first"
         );
+    }
+
+    #[test]
+    fn the_brightness_is_read_and_changed_with_auth() {
+        use std::sync::atomic::AtomicU32;
+        let (s, base) = serve(options(1));
+        // not turned on: not found
+        assert_eq!(status(&format!("{base}/api/brightness{}", auth(42))), 404);
+
+        let now = Arc::new(AtomicU32::new(100));
+        let (get, set) = (now.clone(), now.clone());
+        s.set_brightness(Brightness {
+            get: Box::new(move || get.load(Ordering::SeqCst)),
+            set: Box::new(move |v| {
+                if v > 300 {
+                    return Err("brightness: too much".into());
+                }
+                set.store(v, Ordering::SeqCst);
+                Ok(v)
+            }),
+        });
+        let url = format!("{base}/api/brightness{}", auth(42));
+        assert_eq!(status(&format!("{base}/api/brightness")), 401);
+        assert_eq!(status(&format!("{base}/api/brightness{}", auth(7))), 401);
+
+        let got = ureq::get(&url).call().unwrap().into_string().unwrap();
+        assert_eq!(got, r#"{"value":100,"min":20,"max":400,"step":10}"#);
+
+        let got = ureq::post(&format!("{url}&value=130"))
+            .call()
+            .unwrap()
+            .into_string()
+            .unwrap();
+        assert!(got.starts_with(r#"{"value":130,"#), "{got}");
+        assert_eq!(now.load(Ordering::SeqCst), 130);
+
+        // a GET never changes it, a bad value is refused
+        ureq::get(&format!("{url}&value=50")).call().unwrap();
+        assert_eq!(now.load(Ordering::SeqCst), 130);
+        assert_eq!(
+            status_of(ureq::post(&format!("{url}&value=301")).call()),
+            400
+        );
+        assert_eq!(status_of(ureq::post(&format!("{url}&value=x")).call()), 400);
+        assert_eq!(status_of(ureq::post(&url).call()), 400);
+        assert_eq!(now.load(Ordering::SeqCst), 130);
+    }
+
+    fn status_of(r: Result<ureq::Response, ureq::Error>) -> u16 {
+        match r {
+            Ok(r) => r.status(),
+            Err(ureq::Error::Status(code, _)) => code,
+            Err(e) => panic!("{e}"),
+        }
     }
 
     #[test]

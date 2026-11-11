@@ -25,3 +25,9 @@ button { background: var(--accent); color: var(--accent-fg); border: 0; border-r
 .value { font-size: 28px; font-variant-numeric: tabular-nums; }
 canvas { width: 100%; height: 220px; display: block; margin-top: 8px; }
 .notice { text-align: center; padding: 32px 8px; }
+
+.brightness { display: flex; align-items: center; gap: 10px; }
+.brightness input[type='range'] { flex: 1; min-width: 0; accent-color: var(--accent); }
+.brightness button { padding: 6px 14px; font-size: 18px; line-height: 1; }
+.brightness button:disabled { opacity: 0.4; }
+.brightness .value { font-size: 16px; min-width: 3.5em; text-align: right; }

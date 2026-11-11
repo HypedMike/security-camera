@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { BrightnessControl } from './components/BrightnessControl'
 import { LiveView } from './components/LiveView'
 import { MotionGraph } from './components/MotionGraph'
 import { checkAccess, type Access } from './lib/api'
@@ -33,6 +34,7 @@ export function App() {
   return (
     <main>
       <LiveView initData={initData} />
+      <BrightnessControl initData={initData} />
       <MotionGraph initData={initData} />
     </main>
   )

@@ -8,7 +8,7 @@ use std::time::Duration;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-use crate::config::{Live, Values};
+use crate::config::{BRIGHTNESS_MAX, BRIGHTNESS_MIN, Live, Values};
 use crate::detector::{NAME_BACKGROUND, NAME_DIFFERENCE};
 use crate::monitor::Monitor;
 use crate::stream::Stream;
@@ -37,6 +37,9 @@ pub struct Settings {
     pub hd_gif_dither: bool,
 
     pub snap_jpeg_quality: i64,
+
+    /// The brightness of the picture in percent, 100 being the camera as it is.
+    pub brightness: i64,
 }
 
 impl Settings {
@@ -60,6 +63,8 @@ impl Settings {
             hd_gif_dither: v.hd_gif_dither,
 
             snap_jpeg_quality: i64::from(v.snap_jpeg_quality),
+
+            brightness: i64::from(v.brightness),
         }
     }
 
@@ -113,6 +118,11 @@ impl Settings {
         }
         if !(1..=100).contains(&self.snap_jpeg_quality) {
             return Err("snap_jpeg_quality: must be between 1 and 100".into());
+        }
+        if !(i64::from(BRIGHTNESS_MIN)..=i64::from(BRIGHTNESS_MAX)).contains(&self.brightness) {
+            return Err(format!(
+                "brightness: must be between {BRIGHTNESS_MIN} and {BRIGHTNESS_MAX} (100 is the camera as it is)"
+            ));
         }
         Ok(())
     }
@@ -173,6 +183,7 @@ pub fn apply(
         hd_gif_width: c.hd_gif_width as usize,
         hd_gif_dither: c.hd_gif_dither,
         snap_jpeg_quality: c.snap_jpeg_quality as u8,
+        brightness: c.brightness as u32,
     });
     Ok(())
 }
@@ -321,7 +332,8 @@ mod tests {
                 alarm_gif_fps: 4,
                 hd_gif_width: config::HD_GIF_WIDTH,
                 hd_gif_dither: false,
-                snap_jpeg_quality: 50
+                snap_jpeg_quality: 50,
+                brightness: config::BRIGHTNESS
             }
         );
         // what was left out kept its value
@@ -346,6 +358,8 @@ mod tests {
             ),
             (r#"{"hd_gif_width": 0}"#, "hd_gif_width"),
             (r#"{"snap_jpeg_quality": 101}"#, "snap_jpeg_quality"),
+            (r#"{"brightness": 0}"#, "brightness"),
+            (r#"{"brightness": 401}"#, "brightness"),
             (r#"{"no_such_setting": 1}"#, "unknown field"),
             (r#"{"alarm_gif_seconds": "x"}"#, "not valid settings JSON"),
             (r#"{"alarm_gif_seconds": 0}"#, "alarm_gif_seconds"),
@@ -400,7 +414,7 @@ mod tests {
     fn saved_settings_survive_a_restart() {
         let path = temp_path("settings.json");
         let before = settings();
-        apply_to(&before, r#"{"detector": "difference", "alarm_gif_seconds": 8, "snap_jpeg_quality": 50, "paused": true}"#).unwrap();
+        apply_to(&before, r#"{"detector": "difference", "alarm_gif_seconds": 8, "snap_jpeg_quality": 50, "brightness": 150, "paused": true}"#).unwrap();
         save(&path, &Settings::current(&before.0, &before.1, &before.2)).unwrap();
         assert!(
             !fs::read_to_string(&path).unwrap().contains("paused"),
@@ -420,6 +434,7 @@ mod tests {
         assert_eq!(after.0.detector(), NAME_DIFFERENCE);
         assert_eq!(after.2.get().alarm_gif_span, Duration::from_secs(8));
         assert_eq!(after.2.get().snap_jpeg_quality, 50);
+        assert_eq!(after.2.get().brightness, 150);
         assert!(
             !after.0.paused(),
             "the camera came back paused: paused must not be saved"
