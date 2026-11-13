@@ -289,7 +289,11 @@ impl Commands {
         // the build takes a while, don't hold up the other messages
         thread::spawn(move || {
             let _ = me.chat.send_message("Updating...");
-            let (out, result) = update::build(&me.update_script, me.update_timeout);
+            // each step the script reports goes to the chat as it starts
+            let chat = me.chat.clone();
+            let (out, result) = update::build(&me.update_script, me.update_timeout, move |step| {
+                let _ = chat.send_message(step);
+            });
             match result {
                 Err(e) => {
                     me.updating.store(false, Ordering::SeqCst);
@@ -631,6 +635,21 @@ mod tests {
         // it can be tried again
         f.say("/update");
         assert_eq!(f.reply(), "Updating...");
+    }
+
+    #[test]
+    fn an_update_tells_its_steps_while_it_runs() {
+        let mut f = fixture(false, "");
+        let script = script(
+            &f,
+            "echo '@@ Pulling...'\necho '@@ Building...'\necho 'updated a -> b'\n",
+        );
+        Arc::get_mut(&mut f.cmds).unwrap().update_script = script;
+        f.say("/update");
+        assert_eq!(f.reply(), "Updating...");
+        assert_eq!(f.reply(), "Pulling...");
+        assert_eq!(f.reply(), "Building...");
+        assert_eq!(f.reply(), "updated a -> b\nRestarting...");
     }
 
     #[test]

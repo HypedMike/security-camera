@@ -4,11 +4,21 @@
 set -euo pipefail
 cd "$(dirname "$0")"
 
+# Lines that start with "@@ " are progress reports: the program sends each one
+# to Telegram as soon as it is printed.
 before=$(git rev-parse --short HEAD)
+echo "@@ Pulling the latest code..."
 git pull --ff-only
 after=$(git rev-parse --short HEAD)
+if [ "$before" = "$after" ]; then
+	echo "@@ No new commits, still at $after. Building anyway..."
+else
+	echo "@@ Pulled $before -> $after. Building (a few minutes)..."
+fi
 
+SECONDS=0
 ./build_linux
+echo "@@ Built in $((SECONDS / 60))m$((SECONDS % 60))s."
 
 if [ "$before" = "$after" ]; then
 	echo "already at $after, rebuilt"

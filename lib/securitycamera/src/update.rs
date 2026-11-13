@@ -1,15 +1,26 @@
 //! Pulls and rebuilds the program, and restarts it in place.
 
-use std::io::Read;
+use std::io::{BufRead, BufReader};
 use std::os::unix::process::CommandExt;
 use std::process::{Command, Stdio};
 use std::thread;
 use std::time::{Duration, Instant};
 
+/// A line of the script's output that starts with this is a progress report:
+/// `on_progress` gets the rest of it as soon as it is printed, and it is not
+/// part of the output [`build`] returns.
+pub const PROGRESS_MARK: &str = "@@ ";
+
 /// Runs the update script and returns its combined output and whether it
 /// worked. The script must pull and build; a non-zero exit is reported as an
-/// error and leaves the running program untouched.
-pub fn build(script: &str, timeout: Duration) -> (String, Result<(), String>) {
+/// error and leaves the running program untouched. While it runs, the
+/// progress lines it prints (see [`PROGRESS_MARK`]) are handed to
+/// `on_progress`, in the order they happen.
+pub fn build(
+    script: &str,
+    timeout: Duration,
+    mut on_progress: impl FnMut(&str) + Send + 'static,
+) -> (String, Result<(), String>) {
     // the script's output and error go to the same pipe, in the order they happen
     let mut child = match Command::new("sh")
         .args(["-c", "exec \"$0\" 2>&1", script])
@@ -23,11 +34,21 @@ pub fn build(script: &str, timeout: Duration) -> (String, Result<(), String>) {
         Ok(c) => c,
         Err(e) => return (String::new(), Err(format!("{script}: {e}"))),
     };
-    let mut stdout = child.stdout.take().expect("stdout is piped");
+    let stdout = child.stdout.take().expect("stdout is piped");
     let reader = thread::spawn(move || {
-        let mut out = Vec::new();
-        let _ = stdout.read_to_end(&mut out);
-        String::from_utf8_lossy(&out).into_owned()
+        let mut out = String::new();
+        let mut lines = BufReader::new(stdout);
+        let mut line = Vec::new();
+        // ends at the end of the output, or on a read error
+        while lines.read_until(b'\n', &mut line).is_ok_and(|n| n > 0) {
+            let text = String::from_utf8_lossy(&line).into_owned();
+            match text.strip_prefix(PROGRESS_MARK) {
+                Some(step) => on_progress(step.trim()),
+                None => out.push_str(&text),
+            }
+            line.clear();
+        }
+        out
     });
 
     let deadline = Instant::now() + timeout;
@@ -106,20 +127,54 @@ mod tests {
 
     #[test]
     fn build_returns_the_output() {
-        let (out, r) = build(&script("echo 'updated a -> b'\n"), MINUTE);
+        let (out, r) = build(&script("echo 'updated a -> b'\n"), MINUTE, |_| {});
         assert_eq!((out.as_str(), r), ("updated a -> b", Ok(())));
     }
 
     #[test]
     fn build_failure_keeps_the_output() {
-        let (out, r) = build(&script("echo boom >&2\nexit 1\n"), MINUTE);
+        let (out, r) = build(&script("echo boom >&2\nexit 1\n"), MINUTE, |_| {});
         assert!(out.contains("boom") && r.is_err(), "{out:?} {r:?}");
     }
 
     #[test]
     fn build_output_is_in_order() {
-        let (out, _) = build(&script("echo one\necho two >&2\necho three\n"), MINUTE);
+        let (out, _) = build(
+            &script("echo one\necho two >&2\necho three\n"),
+            MINUTE,
+            |_| {},
+        );
         assert_eq!(out, "one\ntwo\nthree");
+    }
+
+    #[test]
+    fn progress_lines_are_reported_as_they_happen_and_left_out_of_the_output() {
+        use std::sync::mpsc;
+        let (tx, rx) = mpsc::channel();
+        // the second report comes only after the test has seen the first: they
+        // are not held back until the script ends
+        let gate = std::env::temp_dir().join(format!("sc-gate-{}", std::process::id()));
+        let _ = fs::remove_file(&gate);
+        let body = format!(
+            "echo '@@ pulling'\necho noise\nwhile [ ! -e {g} ]; do sleep 0.01; done\necho '@@  building  '\necho done\n",
+            g = gate.display()
+        );
+        let tx2 = tx.clone();
+        let t = thread::spawn(move || {
+            build(&script(&body), MINUTE, move |step| {
+                tx2.send(step.to_owned()).unwrap();
+            })
+        });
+        assert_eq!(rx.recv_timeout(Duration::from_secs(10)).unwrap(), "pulling");
+        fs::write(&gate, "").unwrap();
+        assert_eq!(
+            rx.recv_timeout(Duration::from_secs(10)).unwrap(),
+            "building"
+        );
+        let (out, r) = t.join().unwrap();
+        assert_eq!((out.as_str(), r), ("noise\ndone", Ok(())));
+        let _ = fs::remove_file(&gate);
+        drop(tx);
     }
 
     #[test]
@@ -128,6 +183,7 @@ mod tests {
         let (_, r) = build(
             &script("sleep 30 &\nsleep 30\n"),
             Duration::from_millis(100),
+            |_| {},
         );
         assert!(r.unwrap_err().contains("timed out"));
         assert!(
@@ -139,7 +195,7 @@ mod tests {
 
     #[test]
     fn a_missing_script_is_an_error() {
-        let (_, r) = build("/no/such/script", MINUTE);
+        let (_, r) = build("/no/such/script", MINUTE, |_| {});
         assert!(r.is_err());
     }
 

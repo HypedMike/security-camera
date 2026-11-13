@@ -21,7 +21,7 @@ It watches the camera, and when it sees motion above a threshold it sends a shor
   | `/alarms` | Lists the latest 10 alarms: whether their GIF is recording, ready or sent (`/queue` still works). The alarm log is in [`lib/alarmlog/`](lib/alarmlog/) |
   | `/hd <code>` | Sends the GIF of the alarm with that code, the same as a 👍 on the alarm message |
   | `/app`    | Sends a button that opens the mini app (live view and motion graph) |
-  | `/update` | Pulls the latest code, rebuilds and restarts          |
+  | `/update` | Pulls the latest code, rebuilds and restarts, telling each step (pulling, building, built, restarting) as it happens |
   | `/pause`  | Stops sending alarms (the camera keeps running)       |
   | `/resume` | Starts sending alarms again                           |
   | `/edit_config [json]` | Without arguments, sends all the settings as JSON (detector, thresholds, frame counts, cooldown, alarm GIF length, speed and quality, snapshot quality, brightness, ignore areas). Followed by that JSON, changes them and saves them in `settings.json`, so they survive a restart (`paused` is not saved); keys left out keep their value and nothing changes if any value is invalid |
