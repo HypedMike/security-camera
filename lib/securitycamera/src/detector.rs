@@ -4,6 +4,11 @@ use detection::Background;
 use my_video::Frame;
 use streaming::Ring;
 
+use crate::ignore::{self, Area};
+
+/// Gives the ignore areas in use, read for every frame.
+pub type Ignore = Box<dyn Fn() -> Vec<Area> + Send>;
+
 /// Names of the detectors, as used by the DETECTOR setting and /edit_config.
 pub const NAME_BACKGROUND: &str = "background";
 pub const NAME_DIFFERENCE: &str = "difference";
@@ -27,11 +32,25 @@ pub trait Detector: Send {
 
 /// Detects motion against a learned model of the empty scene, see the
 /// `detection` crate for how it works.
-pub struct BackgroundDetector(Background);
+pub struct BackgroundDetector {
+    model: Background,
+    ignore: Option<Ignore>,
+}
 
 impl BackgroundDetector {
     pub fn new() -> Self {
-        BackgroundDetector(Background::new())
+        BackgroundDetector {
+            model: Background::new(),
+            ignore: None,
+        }
+    }
+
+    /// Motion inside the areas `ignore` gives does not count.
+    pub fn ignoring(ignore: impl Fn() -> Vec<Area> + Send + 'static) -> Self {
+        BackgroundDetector {
+            ignore: Some(Box::new(ignore)),
+            ..Self::new()
+        }
     }
 }
 
@@ -47,7 +66,7 @@ impl Detector for BackgroundDetector {
     }
 
     fn reset(&mut self) {
-        self.0.reset();
+        self.model.reset();
     }
 
     fn score(&mut self, frame: &Frame, _: &Ring) -> Result<f64, String> {
@@ -55,9 +74,21 @@ impl Detector for BackgroundDetector {
         if width == 0 || height == 0 || frame.pixels.is_empty() {
             return Err("detection: frame is empty".into());
         }
-        self.0
+        let areas = self.ignore.as_ref().map(|f| f()).unwrap_or_default();
+        // the ignored part is painted a constant grey, which the model learns
+        // as an empty scene
+        let painted;
+        let pixels = if areas.is_empty() {
+            &frame.pixels
+        } else {
+            let mut copy = frame.pixels.clone();
+            ignore::paint(&mut copy, width, height, &areas);
+            painted = copy;
+            &painted
+        };
+        self.model
             .score(detection::Frame::Rgba {
-                data: &frame.pixels,
+                data: pixels,
                 width,
                 height,
                 stride: width * 4,
@@ -75,6 +106,12 @@ pub type Pixels<'a> = (&'a [u8], usize, usize);
 /// means identical images, 1 means every channel flipped between black and
 /// white. All images must have the same size.
 pub fn difference(images: &[Pixels]) -> Result<f64, String> {
+    difference_outside(images, None)
+}
+
+/// Like [`difference`], but the pixels `ignored` marks (`width * height`
+/// flags) are left out of the average.
+pub fn difference_outside(images: &[Pixels], ignored: Option<&[bool]>) -> Result<f64, String> {
     let Some(&(_, width, height)) = images.first().filter(|_| images.len() >= 2) else {
         return Err("detection: need at least 2 images".into());
     };
@@ -87,24 +124,38 @@ pub fn difference(images: &[Pixels]) -> Result<f64, String> {
     if width == 0 || height == 0 {
         return Err("detection: images are empty".into());
     }
+    let ignored = ignored.filter(|m| m.len() == width * height);
+    let counted = match ignored {
+        Some(m) => m.iter().filter(|&&i| !i).count(),
+        None => width * height,
+    };
+    if counted == 0 {
+        // everything is ignored
+        return Ok(0.0);
+    }
     let total: f64 = images
         .windows(2)
-        .map(|pair| pair_difference(pair[0].0, pair[1].0, width * height))
+        .map(|pair| pair_difference(pair[0].0, pair[1].0, counted, ignored))
         .sum();
     Ok(total / (images.len() - 1) as f64)
 }
 
-fn pair_difference(a: &[u8], b: &[u8], pixels: usize) -> f64 {
-    let sum: u64 = a
-        .chunks_exact(4)
-        .zip(b.chunks_exact(4))
-        .map(|(p, q)| {
-            u64::from(p[0].abs_diff(q[0]))
-                + u64::from(p[1].abs_diff(q[1]))
-                + u64::from(p[2].abs_diff(q[2]))
-        })
-        .sum();
-    sum as f64 / (pixels as f64 * 3.0 * 255.0)
+fn pair_difference(a: &[u8], b: &[u8], counted: usize, ignored: Option<&[bool]>) -> f64 {
+    let diff = |(p, q): (&[u8], &[u8])| {
+        u64::from(p[0].abs_diff(q[0]))
+            + u64::from(p[1].abs_diff(q[1]))
+            + u64::from(p[2].abs_diff(q[2]))
+    };
+    let pairs = a.chunks_exact(4).zip(b.chunks_exact(4));
+    let sum: u64 = match ignored {
+        None => pairs.map(diff).sum(),
+        Some(m) => pairs
+            .zip(m)
+            .filter(|&(_, &i)| !i)
+            .map(|(p, _)| diff(p))
+            .sum(),
+    };
+    sum as f64 / (counted as f64 * 3.0 * 255.0)
 }
 
 /// The detector built on [`difference`]: the score is the average change
@@ -113,13 +164,21 @@ pub struct FrameDifference {
     /// How many of the latest frames the difference is computed on, counting
     /// the current one. Less than 2 uses the whole history.
     frames: Box<dyn Fn() -> usize + Send>,
+    ignore: Option<Ignore>,
 }
 
 impl FrameDifference {
     pub fn new(frames: impl Fn() -> usize + Send + 'static) -> Self {
         FrameDifference {
             frames: Box::new(frames),
+            ignore: None,
         }
+    }
+
+    /// Changes inside the areas `ignore` gives do not count.
+    pub fn ignoring(mut self, ignore: impl Fn() -> Vec<Area> + Send + 'static) -> Self {
+        self.ignore = Some(Box::new(ignore));
+        self
     }
 }
 
@@ -143,8 +202,10 @@ impl Detector for FrameDifference {
         let mut images: Vec<Pixels> = (history.len() - used..history.len())
             .filter_map(|i| history.frame(i))
             .collect();
-        images.push((&frame.pixels, frame.width as usize, frame.height as usize));
-        difference(&images)
+        let (width, height) = (frame.width as usize, frame.height as usize);
+        images.push((&frame.pixels, width, height));
+        let areas = self.ignore.as_ref().map(|f| f()).unwrap_or_default();
+        difference_outside(&images, ignore::mask(&areas, width, height).as_deref())
     }
 }
 
@@ -211,6 +272,90 @@ mod tests {
             difference(&[img(&black), (&black[..8], 4, 4)]).is_err(),
             "buffer too short"
         );
+    }
+
+    #[test]
+    fn ignored_pixels_do_not_count() {
+        // a 2x1 picture: the left pixel flips, the right one stays
+        let a = [0, 0, 0, 255, 50, 50, 50, 255];
+        let b = [255, 255, 255, 255, 50, 50, 50, 255];
+        let imgs = [(&a[..], 2, 1), (&b[..], 2, 1)];
+        assert_eq!(difference_outside(&imgs, None), Ok(0.5));
+        assert_eq!(difference_outside(&imgs, Some(&[false, true])), Ok(1.0));
+        assert_eq!(difference_outside(&imgs, Some(&[true, false])), Ok(0.0));
+        assert_eq!(difference_outside(&imgs, Some(&[true, true])), Ok(0.0));
+        // a mask of the wrong size is not used
+        assert_eq!(difference_outside(&imgs, Some(&[true])), Ok(0.5));
+    }
+
+    #[test]
+    fn frame_difference_skips_the_ignore_areas() {
+        let history = ring(&[0, 0]);
+        let whole = Area {
+            x: 0.0,
+            y: 0.0,
+            width: 1.0,
+            height: 1.0,
+        };
+        let right_half = Area {
+            x: 0.5,
+            width: 0.5,
+            ..whole
+        };
+        assert_eq!(
+            FrameDifference::new(|| 0).score(&frame(255), &history),
+            Ok(0.5)
+        );
+        // all of the picture ignored: nothing can move
+        let mut d = FrameDifference::new(|| 0).ignoring(move || vec![whole]);
+        assert_eq!(d.score(&frame(255), &history), Ok(0.0));
+        // half of it ignored: the other half still sees the change
+        let mut d = FrameDifference::new(|| 0).ignoring(move || vec![right_half]);
+        assert_eq!(d.score(&frame(255), &history), Ok(0.5));
+    }
+
+    #[test]
+    fn the_background_detector_ignores_a_blinking_area() {
+        let (w, h) = (64usize, 48usize);
+        // a bright square that moves a little inside the top left corner
+        let scene = |shift: Option<usize>| {
+            let mut px = [100, 100, 100, 255].repeat(w * h);
+            for y in 0..16 {
+                for x in 0..16 {
+                    if let Some(d) = shift {
+                        px[(y * w + x + d) * 4..][..3].copy_from_slice(&[255, 255, 255]);
+                    }
+                }
+            }
+            Frame {
+                width: w as u32,
+                height: h as u32,
+                pixels: px,
+            }
+        };
+        let corner = Area {
+            x: 0.0,
+            y: 0.0,
+            width: 0.3,
+            height: 0.4,
+        };
+        let r = ring(&[]);
+        let learn = |d: &mut BackgroundDetector| {
+            for _ in 0..40 {
+                d.score(&scene(None), &r).unwrap();
+            }
+        };
+        let moving = |d: &mut BackgroundDetector| {
+            (0..5)
+                .map(|i| d.score(&scene(Some(i % 3)), &r).unwrap())
+                .fold(0.0, f64::max)
+        };
+        let mut plain = BackgroundDetector::new();
+        learn(&mut plain);
+        assert!(moving(&mut plain) > 0.0);
+        let mut ignoring = BackgroundDetector::ignoring(move || vec![corner]);
+        learn(&mut ignoring);
+        assert_eq!(moving(&mut ignoring), 0.0);
     }
 
     #[test]

@@ -128,10 +128,15 @@ pub fn run() -> Result<(), String> {
         ));
     }
     let detectors: Vec<Box<dyn Detector>> = {
-        let m = monitor.clone();
+        let (frames, ignore_a, ignore_b) = (monitor.clone(), monitor.clone(), monitor.clone());
         vec![
-            Box::new(BackgroundDetector::new()),
-            Box::new(FrameDifference::new(move || m.detection_frames())),
+            Box::new(BackgroundDetector::ignoring(move || {
+                ignore_a.ignore_areas()
+            })),
+            Box::new(
+                FrameDifference::new(move || frames.detection_frames())
+                    .ignoring(move || ignore_b.ignore_areas()),
+            ),
         ]
     };
 
@@ -263,31 +268,42 @@ pub fn run() -> Result<(), String> {
         });
     }
 
-    // the mini app changes the brightness the way /edit_config does: the
-    // setting is applied and saved in settings.json
+    // the mini app changes the brightness and the ignore areas the way
+    // /edit_config does: the setting is applied and saved in settings.json
     if let Some(app) = mini_app {
         let (mon, stream, live, names) = (monitor.clone(), stream.clone(), live.clone(), names);
-        let (get_live, change) = (live.clone(), Mutex::new(()));
-        app.set_brightness(miniapp::Brightness {
-            get: Box::new(move || get_live.get().brightness),
-            set: Box::new(move |percent| {
+        let change = Arc::new(Mutex::new(()));
+        // applies `json` over the settings and saves them all
+        let save = {
+            let (mon, stream, live, change) = (mon.clone(), stream.clone(), live.clone(), change);
+            Arc::new(move |json: &str, what: &str| -> Result<(), String> {
                 // one change at a time: each one rewrites all the settings
                 let _one_at_a_time = lock(&change);
-                edit_config::apply(
-                    &format!(r#"{{"brightness": {percent}}}"#),
-                    &mon,
-                    &stream,
-                    &live,
-                    &names,
-                )?;
+                edit_config::apply(json, &mon, &stream, &live, &names)?;
                 let current = Settings::current(&mon, &stream, &live);
                 edit_config::save(config::SETTINGS_FILE, &current).map_err(|e| {
                     format!(
-                        "the brightness changed but is not saved ({}): {e}",
+                        "the {what} changed but is not saved ({}): {e}",
                         config::SETTINGS_FILE
                     )
-                })?;
-                Ok(live.get().brightness)
+                })
+            })
+        };
+        let (get_live, set_live, set_save) = (live.clone(), live.clone(), save.clone());
+        app.set_brightness(miniapp::Brightness {
+            get: Box::new(move || get_live.get().brightness),
+            set: Box::new(move |percent| {
+                set_save(&format!(r#"{{"brightness": {percent}}}"#), "brightness")?;
+                Ok(set_live.get().brightness)
+            }),
+        });
+        let (get_mon, set_mon) = (mon.clone(), mon);
+        app.set_ignore(miniapp::Ignore {
+            get: Box::new(move || get_mon.ignore_areas()),
+            set: Box::new(move |areas| {
+                let json = serde_json::json!({ "ignore_areas": areas }).to_string();
+                save(&json, "ignore areas")?;
+                Ok(set_mon.ignore_areas())
             }),
         });
     }

@@ -1,11 +1,11 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 import { apiUrl } from '../lib/api'
 
 // The video stops after a while and when the app is hidden: nobody is
 // watching, and every open stream costs the camera machine CPU and bandwidth.
 const STREAM_MINUTES = 10
 
-export function LiveView({ initData }: { initData: string }) {
+export function LiveView({ initData, children }: { initData: string; children?: ReactNode }) {
   // src is empty while the video is stopped; why, if it is, is in reason
   const [src, setSrc] = useState('')
   const [reason, setReason] = useState('')
@@ -43,6 +43,7 @@ export function LiveView({ initData }: { initData: string }) {
       </div>
       <div className="video">
         {src && <img src={src} alt="Live camera view" onError={() => stop('The video is not available right now (too many viewers?).')} />}
+        {children}
         {!src && (
           <div className="overlay">
             <span>{reason}</span>

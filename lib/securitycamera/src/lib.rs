@@ -12,6 +12,7 @@ pub mod detector;
 pub mod edit_config;
 pub mod env;
 pub mod httpd;
+pub mod ignore;
 pub mod livegraph;
 pub mod miniapp;
 pub mod monitor;

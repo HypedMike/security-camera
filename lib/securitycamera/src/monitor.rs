@@ -7,6 +7,7 @@ use std::time::{Duration, Instant};
 
 use chrono::{DateTime, Local, TimeDelta};
 
+use crate::ignore::Area;
 use crate::util::{go_duration, lock, round_secs};
 
 /// How long the time of an alarm is remembered by [`Monitor::alarms_since`].
@@ -33,6 +34,7 @@ pub struct Monitor {
     paused: AtomicBool,
     cooldown_ms: AtomicU64,
     detection_frames: AtomicUsize,
+    ignore: Mutex<Vec<Area>>,
     frames: AtomicU64,
     alarms: AtomicU64,
     times: Mutex<Times>,
@@ -59,6 +61,7 @@ impl Monitor {
             paused: AtomicBool::new(false),
             cooldown_ms: AtomicU64::new(cooldown.as_millis() as u64),
             detection_frames: AtomicUsize::new(0),
+            ignore: Mutex::new(Vec::new()),
             frames: AtomicU64::new(0),
             alarms: AtomicU64::new(0),
             times: Mutex::new(Times::default()),
@@ -83,6 +86,16 @@ impl Monitor {
 
     pub fn set_detection_frames(&self, n: usize) {
         self.detection_frames.store(n, Ordering::Relaxed);
+    }
+
+    /// The areas of the picture where motion does not count.
+    pub fn ignore_areas(&self) -> Vec<Area> {
+        lock(&self.ignore).clone()
+    }
+
+    /// Changes them. The caller checks that they are valid.
+    pub fn set_ignore_areas(&self, areas: Vec<Area>) {
+        *lock(&self.ignore) = areas;
     }
 
     /// The motion score at or above which the detector in use sends an alarm.

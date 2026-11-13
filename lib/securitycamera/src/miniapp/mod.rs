@@ -1,5 +1,6 @@
 //! A Telegram mini app: a web page that shows the live camera view and the
-//! live motion graph inside Telegram, and sets the brightness of the picture.
+//! live motion graph inside Telegram, sets the brightness of the picture and
+//! draws the areas where motion is ignored.
 //!
 //! The server only listens on the local machine; a tunnel (Tailscale Funnel)
 //! makes it reachable over HTTPS. Every request except the page itself has to
@@ -24,6 +25,7 @@ pub use auth::{Unauthorized, validate};
 
 use crate::config::{BRIGHTNESS_MAX, BRIGHTNESS_MIN, BRIGHTNESS_STEP};
 use crate::httpd::{self, Request, Response};
+use crate::ignore::{self as ignore_areas, Area};
 use crate::livegraph::Graph;
 use crate::util::lock;
 
@@ -77,6 +79,17 @@ pub struct Brightness {
     pub set: Box<dyn Fn(u32) -> Result<u32, String> + Send + Sync>,
 }
 
+/// How the mini app reads and changes the ignore areas (where motion does not
+/// count), given to the server like [`Brightness`] ([`Server::set_ignore`]).
+pub struct Ignore {
+    pub get: Box<dyn Fn() -> Vec<Area> + Send + Sync>,
+    /// Replaces the areas (and saves them) and returns the ones now in use,
+    /// or why they can't be used.
+    pub set: Box<SetAreas>,
+}
+
+type SetAreas = dyn Fn(Vec<Area>) -> Result<Vec<Area>, String> + Send + Sync;
+
 /// The slot a video stream takes its next frame from: only the latest is kept.
 #[derive(Default)]
 struct Slot {
@@ -90,6 +103,7 @@ pub struct Server {
     viewers: AtomicUsize,
     subs: Mutex<Vec<Arc<Slot>>>,
     brightness: OnceLock<Brightness>,
+    ignore: OnceLock<Ignore>,
 }
 
 impl Server {
@@ -99,6 +113,7 @@ impl Server {
             viewers: AtomicUsize::new(0),
             subs: Mutex::new(Vec::new()),
             brightness: OnceLock::new(),
+            ignore: OnceLock::new(),
         })
     }
 
@@ -106,6 +121,12 @@ impl Server {
     /// not found and the app hides the control. Only the first call counts.
     pub fn set_brightness(&self, b: Brightness) {
         let _ = self.brightness.set(b);
+    }
+
+    /// Turns on the ignore areas of the app. Without it the route is not
+    /// found and the app hides the editor. Only the first call counts.
+    pub fn set_ignore(&self, i: Ignore) {
+        let _ = self.ignore.set(i);
     }
 
     /// Whether anybody is watching, so the camera loop can skip encoding
@@ -138,6 +159,7 @@ impl Server {
             "/api/brightness" if self.brightness.get().is_some() => {
                 self.guard(req, |me| me.brightness(req))
             }
+            "/api/ignore" if self.ignore.get().is_some() => self.guard(req, |me| me.ignore(req)),
             "/events" if self.opts.events.is_some() => {
                 self.guard(req, |me| me.opts.events.as_ref().expect("checked").events())
             }
@@ -190,6 +212,36 @@ impl Server {
             format!(
                 r#"{{"value":{now},"min":{BRIGHTNESS_MIN},"max":{BRIGHTNESS_MAX},"step":{BRIGHTNESS_STEP}}}"#
             ),
+        )
+    }
+
+    /// GET shows the ignore areas, POST with `areas` (a JSON array of
+    /// `{x, y, width, height}`, fractions of the picture) replaces them.
+    fn ignore(&self, req: &Request) -> Response {
+        let i = self.ignore.get().expect("checked by the route");
+        let areas = match req.method.as_str() {
+            "POST" => {
+                let Some(raw) = req.param("areas") else {
+                    return Response::text(400, "areas must be a JSON list");
+                };
+                let wanted: Vec<Area> = match serde_json::from_str(raw) {
+                    Ok(a) => a,
+                    Err(e) => return Response::text(400, &format!("areas: {e}")),
+                };
+                if let Err(e) = ignore_areas::validate(&wanted) {
+                    return Response::text(400, &e);
+                }
+                match (i.set)(wanted) {
+                    Ok(a) => a,
+                    Err(e) => return Response::text(400, &e),
+                }
+            }
+            _ => (i.get)(),
+        };
+        Response::new(
+            200,
+            "application/json",
+            serde_json::json!({ "areas": areas, "max": ignore_areas::MAX_AREAS }).to_string(),
         )
     }
 
@@ -399,6 +451,63 @@ mod tests {
         assert_eq!(status_of(ureq::post(&format!("{url}&value=x")).call()), 400);
         assert_eq!(status_of(ureq::post(&url).call()), 400);
         assert_eq!(now.load(Ordering::SeqCst), 130);
+    }
+
+    #[test]
+    fn the_ignore_areas_are_read_and_changed_with_auth() {
+        use std::sync::Mutex as M;
+        let (s, base) = serve(options(1));
+        assert_eq!(status(&format!("{base}/api/ignore{}", auth(42))), 404);
+
+        let now = Arc::new(M::new(Vec::<Area>::new()));
+        let (get, set) = (now.clone(), now.clone());
+        s.set_ignore(Ignore {
+            get: Box::new(move || lock(&get).clone()),
+            set: Box::new(move |a| {
+                *lock(&set) = a.clone();
+                Ok(a)
+            }),
+        });
+        let url = format!("{base}/api/ignore{}", auth(42));
+        assert_eq!(status(&format!("{base}/api/ignore")), 401);
+        assert_eq!(status(&format!("{base}/api/ignore{}", auth(7))), 401);
+
+        let got = ureq::get(&url).call().unwrap().into_string().unwrap();
+        assert_eq!(got, r#"{"areas":[],"max":20}"#);
+
+        let areas = r#"[{"x":0.1,"y":0.2,"width":0.3,"height":0.4}]"#;
+        let got = ureq::post(&url)
+            .query("areas", areas)
+            .call()
+            .unwrap()
+            .into_string()
+            .unwrap();
+        assert!(
+            got.starts_with(r#"{"areas":[{"x":0.1,"y":0.2,"width":0.3,"height":0.4}]"#),
+            "{got}"
+        );
+        assert_eq!(lock(&now).len(), 1);
+
+        // a GET never changes it; bad input is refused and changes nothing
+        ureq::get(&url).query("areas", "[]").call().unwrap();
+        assert_eq!(lock(&now).len(), 1);
+        for bad in [
+            "x",
+            r#"[{"x":0.9,"y":0,"width":0.5,"height":0.5}]"#,
+            r#"[{"x":0,"y":0,"width":0,"height":0.5}]"#,
+        ] {
+            assert_eq!(
+                status_of(ureq::post(&url).query("areas", bad).call()),
+                400,
+                "{bad}"
+            );
+        }
+        assert_eq!(status_of(ureq::post(&url).call()), 400);
+        assert_eq!(lock(&now).len(), 1);
+
+        // an empty list clears them
+        ureq::post(&url).query("areas", "[]").call().unwrap();
+        assert!(lock(&now).is_empty());
     }
 
     fn status_of(r: Result<ureq::Response, ureq::Error>) -> u16 {

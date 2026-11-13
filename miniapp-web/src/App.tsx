@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { BrightnessControl } from './components/BrightnessControl'
+import { AreaLayer, IgnoreControls, useIgnoreAreas } from './components/IgnoreAreas'
 import { LiveView } from './components/LiveView'
 import { MotionGraph } from './components/MotionGraph'
 import { checkAccess, type Access } from './lib/api'
@@ -27,13 +28,18 @@ export function App() {
     return () => abort.abort()
   }, [])
 
+  const ignore = useIgnoreAreas(access === 'allowed' ? initData : '')
+
   if (!initData) return <p className="notice">Open this page from Telegram, with the /app command.</p>
   if (access === 'checking') return <p className="notice">Connecting…</p>
   if (access !== 'allowed') return <p className="notice">{messages[access]}</p>
 
   return (
     <main>
-      <LiveView initData={initData} />
+      <LiveView initData={initData}>
+        <AreaLayer state={ignore} />
+      </LiveView>
+      <IgnoreControls state={ignore} />
       <BrightnessControl initData={initData} />
       <MotionGraph initData={initData} />
     </main>
