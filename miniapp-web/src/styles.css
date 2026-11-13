@@ -31,3 +31,11 @@ canvas { width: 100%; height: 220px; display: block; margin-top: 8px; }
 .brightness button { padding: 6px 14px; font-size: 18px; line-height: 1; }
 .brightness button:disabled { opacity: 0.4; }
 .brightness .value { font-size: 16px; min-width: 3.5em; text-align: right; }
+
+.areas { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
+.areas.editing { pointer-events: auto; touch-action: none; cursor: crosshair; }
+.area { fill: rgba(220, 38, 38, 0.35); stroke: #ef4444; stroke-width: 2; vector-effect: non-scaling-stroke; }
+.area.drawing { fill: rgba(220, 38, 38, 0.2); stroke-dasharray: 6 4; }
+.actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
+.actions button { padding: 8px 14px; }
+.actions button:disabled { opacity: 0.4; }

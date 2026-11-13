@@ -10,6 +10,7 @@ use serde_json::Value;
 
 use crate::config::{BRIGHTNESS_MAX, BRIGHTNESS_MIN, Live, Values};
 use crate::detector::{NAME_BACKGROUND, NAME_DIFFERENCE};
+use crate::ignore::{self, Area};
 use crate::monitor::Monitor;
 use crate::stream::Stream;
 
@@ -40,6 +41,10 @@ pub struct Settings {
 
     /// The brightness of the picture in percent, 100 being the camera as it is.
     pub brightness: i64,
+
+    /// Rectangles of the picture (fractions of its width and height) where
+    /// motion does not count. The mini app draws them.
+    pub ignore_areas: Vec<Area>,
 }
 
 impl Settings {
@@ -65,6 +70,8 @@ impl Settings {
             snap_jpeg_quality: i64::from(v.snap_jpeg_quality),
 
             brightness: i64::from(v.brightness),
+
+            ignore_areas: mon.ignore_areas(),
         }
     }
 
@@ -124,6 +131,7 @@ impl Settings {
                 "brightness: must be between {BRIGHTNESS_MIN} and {BRIGHTNESS_MAX} (100 is the camera as it is)"
             ));
         }
+        ignore::validate(&self.ignore_areas)?;
         Ok(())
     }
 
@@ -177,6 +185,7 @@ pub fn apply(
     mon.set_cooldown(seconds(c.alarm_cooldown_seconds));
     stream.set_history(c.stack_frames as usize);
     mon.set_detection_frames(c.detection_frames as usize);
+    mon.set_ignore_areas(c.ignore_areas.clone());
     live.set(Values {
         alarm_gif_span: seconds(c.alarm_gif_seconds),
         alarm_gif_fps: c.alarm_gif_fps as u32,
@@ -439,6 +448,38 @@ mod tests {
             !after.0.paused(),
             "the camera came back paused: paused must not be saved"
         );
+    }
+
+    #[test]
+    fn ignore_areas_are_set_checked_saved_and_reset() {
+        let s = settings();
+        let apply = |json: &str| apply(json, &s.0, &s.1, &s.2, NAMES);
+        assert!(s.0.ignore_areas().is_empty());
+        apply(r#"{"ignore_areas": [{"x": 0.1, "y": 0.2, "width": 0.3, "height": 0.4}]}"#).unwrap();
+        assert_eq!(s.0.ignore_areas().len(), 1);
+        assert!(json(&s).contains("ignore_areas"));
+
+        let before = json(&s);
+        for bad in [
+            r#"{"ignore_areas": [{"x": 0.9, "y": 0, "width": 0.5, "height": 0.5}]}"#,
+            r#"{"ignore_areas": [{"x": 0, "y": 0, "width": 0, "height": 0.5}]}"#,
+            r#"{"ignore_areas": [{"x": 0, "y": 0}]}"#,
+        ] {
+            assert!(apply(bad).is_err(), "{bad}");
+            assert_eq!(json(&s), before, "{bad} changed the settings");
+        }
+
+        // saved with the rest, and an old file without them leaves them alone
+        let path = temp_path("ignore.json");
+        save(&path, &Settings::current(&s.0, &s.1, &s.2)).unwrap();
+        let again = settings();
+        load_saved(&path, &again.0, &again.1, &again.2, NAMES).unwrap();
+        assert_eq!(again.0.ignore_areas(), s.0.ignore_areas());
+        apply(r#"{"brightness": 120}"#).unwrap();
+        assert_eq!(s.0.ignore_areas().len(), 1, "other keys keep them");
+
+        apply(r#"{"ignore_areas": []}"#).unwrap();
+        assert!(s.0.ignore_areas().is_empty());
     }
 
     #[test]
