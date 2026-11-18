@@ -87,6 +87,44 @@ fn lighting() {
     assert!(s != 0.0, "motion after the lighting change not detected");
 }
 
+/// Like `scene`, with every brightness multiplied by `gain` (auto exposure).
+fn scaled(rng: &mut Rng, gain: f64) -> Vec<u8> {
+    let mut img = scene(rng, 0, 0, 0, 0);
+    for px in img.chunks_exact_mut(4) {
+        for c in &mut px[..3] {
+            *c = (*c as f64 * gain).round().min(255.0) as u8;
+        }
+    }
+    img
+}
+
+#[test]
+fn exposure() {
+    // a mild exposure change moves only some pixels past the threshold, so
+    // the share of changed pixels alone would not catch it
+    for gain in [0.9, 1.1] {
+        let mut rng = Rng(7);
+        let mut d = Background::new();
+        warm(&mut d, &mut rng);
+        for i in 0..30 {
+            assert_eq!(score(&mut d, &scaled(&mut rng, gain)), 0.0, "gain {gain} frame {i}");
+        }
+    }
+}
+
+#[test]
+fn object_is_not_exposure() {
+    let mut rng = Rng(8);
+    let mut d = Background::new();
+    warm(&mut d, &mut rng);
+    let mut s = 0.0;
+    for _ in 0..5 {
+        // a dark object over about a third of the frame
+        s = score(&mut d, &scene(&mut rng, 200, 100, 300, 0));
+    }
+    assert!(s > 0.0, "large object mistaken for exposure");
+}
+
 #[test]
 fn still_object_absorbed() {
     let mut rng = Rng(4);
