@@ -35,6 +35,8 @@ pub trait Detector: Send {
 pub struct BackgroundDetector {
     model: Background,
     ignore: Option<Ignore>,
+    /// The areas of the previous frame.
+    areas: Vec<Area>,
 }
 
 impl BackgroundDetector {
@@ -42,6 +44,7 @@ impl BackgroundDetector {
         BackgroundDetector {
             model: Background::new(),
             ignore: None,
+            areas: Vec::new(),
         }
     }
 
@@ -75,6 +78,12 @@ impl Detector for BackgroundDetector {
             return Err("detection: frame is empty".into());
         }
         let areas = self.ignore.as_ref().map(|f| f()).unwrap_or_default();
+        if areas != self.areas {
+            // painting (or unpainting) a part of the picture changes it all
+            // at once: learn the scene again instead of calling it motion
+            self.model.reset();
+            self.areas = areas.clone();
+        }
         // the ignored part is painted a constant grey, which the model learns
         // as an empty scene
         let painted;
@@ -356,6 +365,43 @@ mod tests {
         let mut ignoring = BackgroundDetector::ignoring(move || vec![corner]);
         learn(&mut ignoring);
         assert_eq!(moving(&mut ignoring), 0.0);
+    }
+
+    #[test]
+    fn changing_the_ignore_areas_is_not_motion() {
+        let (w, h) = (64usize, 48usize);
+        // a bright square in the top left corner of a grey scene
+        let mut px = [100, 100, 100, 255].repeat(w * h);
+        for y in 0..16 {
+            for x in 0..16 {
+                px[(y * w + x) * 4..][..3].copy_from_slice(&[255, 255, 255]);
+            }
+        }
+        let scene = Frame {
+            width: w as u32,
+            height: h as u32,
+            pixels: px,
+        };
+        let corner = Area {
+            x: 0.0,
+            y: 0.0,
+            width: 0.3,
+            height: 0.4,
+        };
+        let areas = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+        let shared = areas.clone();
+        let mut d = BackgroundDetector::ignoring(move || shared.lock().unwrap().clone());
+        let r = ring(&[]);
+        for _ in 0..40 {
+            d.score(&scene, &r).unwrap();
+        }
+        // drawing the area, and removing it again, must stay quiet
+        for set in [vec![corner], vec![]] {
+            *areas.lock().unwrap() = set;
+            for i in 0..40 {
+                assert_eq!(d.score(&scene, &r), Ok(0.0), "frame {i}");
+            }
+        }
     }
 
     #[test]
