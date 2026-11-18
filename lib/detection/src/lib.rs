@@ -12,8 +12,10 @@
 //! scene at once, so the score drops in a couple of seconds instead of fading
 //! out over a minute.
 //!
-//! When more than `lighting` of the frame changes at once the frame scores 0
-//! and the model is learned again for `settle` frames. The returned score is
+//! When more than `lighting` of the frame changes at once, or the median
+//! brightness drifts more than `exposure` from the model's (the camera's auto
+//! exposure at work), the frame scores 0 and the model is learned again for
+//! `settle` frames. The returned score is
 //! the `persist`-th largest of the last `window` frame scores.
 
 use std::fmt;
@@ -71,6 +73,10 @@ pub struct Background {
     pub slow_alpha: f64,
     /// Fraction of changed pixels above which the frame is a lighting change.
     pub lighting: f64,
+    /// How far the median brightness may drift from the model's, as a
+    /// fraction (0.05 is 5%), before the frame is an exposure change, handled
+    /// like a lighting change; 0 never.
+    pub exposure: f64,
     /// Frames the model is learned for, without scoring, at start and after a lighting change.
     pub settle: usize,
     /// Frames a changed pixel must stay within `min_diff` of the same
@@ -93,6 +99,7 @@ pub struct Background {
     reference: Vec<f32>,
     still_for: Vec<u32>,
     stack: Vec<u32>,
+    ratios: Vec<f32>,
     learned: bool,
     settle_left: usize,
     scores: Vec<f64>,
@@ -114,6 +121,7 @@ impl Background {
             alpha: 0.02,
             slow_alpha: 0.002,
             lighting: 0.5,
+            exposure: 0.05,
             settle: 10,
             still: 60,
             persist: 3,
@@ -131,6 +139,7 @@ impl Background {
             reference: Vec::new(),
             still_for: Vec::new(),
             stack: Vec::new(),
+            ratios: Vec::new(),
             learned: false,
             settle_left: 0,
             scores: Vec::new(),
@@ -177,7 +186,13 @@ impl Background {
             count += *c as usize;
         }
 
-        if count as f64 > self.lighting * n as f64 {
+        // Auto exposure (or a light switched on) scales the whole picture, but
+        // may move fewer than `lighting` of the pixels past the threshold: the
+        // median brightness ratio sees it, and is not moved by an object
+        // covering less than half of the frame.
+        let exposure = self.exposure > 0.0 && (self.gain() - 1.0).abs() > self.exposure;
+
+        if exposure || count as f64 > self.lighting * n as f64 {
             self.settle_left = self.settle;
             self.still_for.fill(0);
             self.learn_all(SETTLE_ALPHA);
@@ -337,6 +352,23 @@ impl Background {
         {
             learn(m, v, g, alpha);
         }
+    }
+
+    /// Median of the current brightness over the model's, on a sample of the
+    /// pixels that are neither nearly black nor nearly white (those do not
+    /// follow exposure). 1.0 when there are too few such pixels.
+    fn gain(&mut self) -> f64 {
+        self.ratios.clear();
+        for (&g, &m) in self.gray.iter().zip(&self.mean).step_by(4) {
+            if (20.0..235.0).contains(&m) {
+                self.ratios.push(g / m);
+            }
+        }
+        if self.ratios.len() < self.gray.len() / 40 {
+            return 1.0;
+        }
+        let mid = self.ratios.len() / 2;
+        *self.ratios.select_nth_unstable_by(mid, f32::total_cmp).1 as f64
     }
 
     /// Drops changed pixels with fewer than two changed neighbours.
