@@ -107,7 +107,11 @@ fn exposure() {
         let mut d = Background::new();
         warm(&mut d, &mut rng);
         for i in 0..30 {
-            assert_eq!(score(&mut d, &scaled(&mut rng, gain)), 0.0, "gain {gain} frame {i}");
+            assert_eq!(
+                score(&mut d, &scaled(&mut rng, gain)),
+                0.0,
+                "gain {gain} frame {i}"
+            );
         }
     }
 }
