@@ -581,20 +581,15 @@ pub fn send_daily_report(
     } else {
         Duration::from_secs(30)
     };
-    let weather = match dailyreport::fetch_weather_retrying(
-        api,
-        lat,
-        lon,
-        Duration::from_secs(15),
-        4,
-        pause,
-    ) {
-        Ok(w) => Some(w),
-        Err(e) => {
-            eprintln!("daily report: {e}");
-            None
-        }
-    };
+    let weather =
+        match dailyreport::fetch_weather_retrying(api, lat, lon, Duration::from_secs(15), 4, pause)
+        {
+            Ok(w) => Some(w),
+            Err(e) => {
+                eprintln!("daily report: {e}");
+                None
+            }
+        };
     let events = dailyreport::fetch_events(calendar_api, now.date_naive(), Duration::from_secs(15))
         .unwrap_or_else(|e| {
             eprintln!("daily report: {e}");
