@@ -61,7 +61,7 @@ pub fn compose(
 
     match w {
         Some(w) => push_weather(&mut b, now, w),
-        None => b.push_str(" The weather forecast is not available."),
+        None => b.push_str(" I cannot find information about the weather today, look out of the window and touch grass to find out."),
     }
     if !events.is_empty() {
         b.push_str("\n\nToday in the calendar:");
@@ -319,7 +319,7 @@ mod tests {
         let got = compose(local(2026, 11, 2, 9, 0), &[], false, None, &[]);
         assert_eq!(
             got,
-            "i'm alive, tonight there have been no alarms or movement. The weather forecast is not available."
+            "i'm alive, tonight there have been no alarms or movement. I cannot find information about the weather today, look out of the window and touch grass to find out."
         );
     }
 
@@ -502,7 +502,7 @@ mod tests {
                 vec![],
                 false,
                 None,
-                vec!["movement. The weather forecast is not available.\n\nToday in the calendar:\n- Messa"],
+                vec!["movement. I cannot find information about the weather today, look out of the window and touch grass to find out.\n\nToday in the calendar:\n- Messa"],
                 vec!["Today it"],
             )
         });

@@ -976,7 +976,7 @@ mod tests {
         };
         assert_eq!(
             text,
-            "i'm alive, tonight there have been no alarms or movement. The weather forecast is not available."
+            "i'm alive, tonight there have been no alarms or movement. I cannot find information about the weather today, look out of the window and touch grass to find out."
         );
     }
 
