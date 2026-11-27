@@ -59,8 +59,9 @@ pub fn compose(
     }
     b.push('.');
 
-    if let Some(w) = w {
-        push_weather(&mut b, now, w);
+    match w {
+        Some(w) => push_weather(&mut b, now, w),
+        None => b.push_str(" I cannot find information about the weather today, look out of the window and touch grass to find out."),
     }
     if !events.is_empty() {
         b.push_str("\n\nToday in the calendar:");
@@ -177,6 +178,30 @@ pub fn fetch_weather(api: &str, lat: f64, lon: f64, timeout: Duration) -> Result
     }
 }
 
+/// Like `fetch_weather`, but tries up to `attempts` times, waiting `pause`
+/// between the tries, so a network that is not ready yet doesn't lose the
+/// forecast.
+pub fn fetch_weather_retrying(
+    api: &str,
+    lat: f64,
+    lon: f64,
+    timeout: Duration,
+    attempts: u32,
+    pause: Duration,
+) -> Result<Weather, String> {
+    let mut last = Err("weather: no attempt".to_string());
+    for i in 0..attempts.max(1) {
+        if i > 0 {
+            thread::sleep(pause);
+        }
+        last = fetch_weather(api, lat, lon, timeout);
+        if last.is_ok() {
+            break;
+        }
+    }
+    last
+}
+
 /// The API the events come from: the parish website, which needs no key.
 pub const CALENDAR_API: &str = "https://parrocchiasandonato.vercel.app/api/events";
 
@@ -287,6 +312,54 @@ mod tests {
             max_c,
             min_c,
         })
+    }
+
+    #[test]
+    fn a_missing_forecast_is_said_on_a_quiet_night() {
+        let got = compose(local(2026, 11, 2, 9, 0), &[], false, None, &[]);
+        assert_eq!(
+            got,
+            "i'm alive, tonight there have been no alarms or movement. I cannot find information about the weather today, look out of the window and touch grass to find out."
+        );
+    }
+
+    #[test]
+    fn the_forecast_is_tried_again() {
+        let calls = Arc::new(Mutex::new(0));
+        let c = calls.clone();
+        let l = TcpListener::bind("127.0.0.1:0").unwrap();
+        let url = format!("http://{}", l.local_addr().unwrap());
+        thread::spawn(move || {
+            for stream in l.incoming() {
+                let mut stream = stream.unwrap();
+                let mut line = String::new();
+                let mut r = BufReader::new(stream.try_clone().unwrap());
+                while r.read_line(&mut line).unwrap() > 2 {
+                    line.clear();
+                }
+                let n = {
+                    let mut g = c.lock().unwrap();
+                    *g += 1;
+                    *g
+                };
+                let (status, body) = if n < 3 {
+                    ("500 Internal Server Error", "no")
+                } else {
+                    (
+                        "200 OK",
+                        r#"{"daily":{"weather_code":[0],"temperature_2m_max":[20],"temperature_2m_min":[10]}}"#,
+                    )
+                };
+                let _ = write!(
+                    stream,
+                    "HTTP/1.1 {status}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                    body.len()
+                );
+            }
+        });
+        let got = fetch_weather_retrying(&url, 0.0, 0.0, TIMEOUT, 4, Duration::ZERO).unwrap();
+        assert!(got.sunny);
+        assert_eq!(*calls.lock().unwrap(), 3);
     }
 
     #[test]
@@ -429,7 +502,7 @@ mod tests {
                 vec![],
                 false,
                 None,
-                vec!["movement.\n\nToday in the calendar:\n- Messa"],
+                vec!["movement. I cannot find information about the weather today, look out of the window and touch grass to find out.\n\nToday in the calendar:\n- Messa"],
                 vec!["Today it"],
             )
         });

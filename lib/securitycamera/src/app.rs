@@ -576,13 +576,20 @@ pub fn send_daily_report(
     calendar_api: &str,
     (lat, lon): (f64, f64),
 ) {
-    let weather = match dailyreport::fetch_weather(api, lat, lon, Duration::from_secs(15)) {
-        Ok(w) => Some(w),
-        Err(e) => {
-            eprintln!("daily report: {e}");
-            None
-        }
+    let pause = if cfg!(test) {
+        Duration::ZERO
+    } else {
+        Duration::from_secs(30)
     };
+    let weather =
+        match dailyreport::fetch_weather_retrying(api, lat, lon, Duration::from_secs(15), 4, pause)
+        {
+            Ok(w) => Some(w),
+            Err(e) => {
+                eprintln!("daily report: {e}");
+                None
+            }
+        };
     let events = dailyreport::fetch_events(calendar_api, now.date_naive(), Duration::from_secs(15))
         .unwrap_or_else(|e| {
             eprintln!("daily report: {e}");
@@ -964,7 +971,7 @@ mod tests {
         };
         assert_eq!(
             text,
-            "i'm alive, tonight there have been no alarms or movement."
+            "i'm alive, tonight there have been no alarms or movement. I cannot find information about the weather today, look out of the window and touch grass to find out."
         );
     }
 
